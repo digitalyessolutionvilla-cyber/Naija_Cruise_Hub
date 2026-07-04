@@ -42,9 +42,38 @@ export function ChatRoomPage() {
     supabase.from('chat_rooms').select('*').eq('id', id).maybeSingle()
       .then(({ data }) => { if (data) setRoom(data as ChatRoom); });
 
+    const roomChannel = supabase
+      .channel(`room-meta-${id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chat_rooms',
+        filter: `id=eq.${id}`,
+      }, (payload) => {
+        setRoom(payload.new as ChatRoom);
+      })
+      .subscribe();
+
+    if (user) {
+      void supabase
+        .from('room_members')
+        .upsert({ room_id: id, user_id: user.id }, { onConflict: 'room_id,user_id' });
+    }
+
     // Award XP for joining a room (once per session)
     if (user) awardXP('join_room');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+      supabase.removeChannel(roomChannel);
+      if (user) {
+        void supabase
+          .from('room_members')
+          .delete()
+          .eq('room_id', id)
+          .eq('user_id', user.id);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
 
   useEffect(() => {

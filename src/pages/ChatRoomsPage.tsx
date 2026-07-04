@@ -1,21 +1,32 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Hash, Search } from 'lucide-react';
+import { Hash, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TopBar } from '@/components/layout/TopBar';
 import { RoomCard } from '@/components/chat/RoomCard';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { ChatRoom } from '@/types';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 const CATEGORIES = ['All', 'General', 'City', 'Education', 'Social', 'Entertainment', 'Sports', 'Technology', 'Lifestyle', 'Business'];
 
 export function ChatRoomsPage() {
+  const { user } = useAuth();
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
   const [search, setSearch] = useState('');
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomDescription, setNewRoomDescription] = useState('');
+  const [newRoomCategory, setNewRoomCategory] = useState('General');
+  const [creatingRoom, setCreatingRoom] = useState(false);
 
   useEffect(() => {
     const fetchRooms = async () => {
@@ -37,10 +48,55 @@ export function ChatRoomsPage() {
     return matchCat && matchSearch;
   });
 
+  const handleCreateRoom = async () => {
+    if (!user) {
+      toast.error('Sign in to create a room.');
+      return;
+    }
+    if (!newRoomName.trim()) {
+      toast.error('Room name is required.');
+      return;
+    }
+
+    setCreatingRoom(true);
+    const { data, error } = await supabase
+      .from('chat_rooms')
+      .insert({
+        name: newRoomName.trim(),
+        description: newRoomDescription.trim() || null,
+        category: newRoomCategory,
+        emoji_icon: 'MessageSquare',
+        member_count: 0,
+        is_active: true,
+      })
+      .select('*')
+      .single();
+
+    setCreatingRoom(false);
+
+    if (error) {
+      toast.error(`Failed to create room: ${error.message}`);
+      return;
+    }
+
+    setRooms(prev => [data as ChatRoom, ...prev]);
+    setShowCreateRoom(false);
+    setNewRoomName('');
+    setNewRoomDescription('');
+    setNewRoomCategory('General');
+    toast.success('Room created successfully!');
+  };
+
   return (
     <AppLayout>
       <TopBar title="Chat Rooms" showSearch={false} />
       <div className="max-w-3xl mx-auto w-full p-4 space-y-4">
+        <div className="flex justify-end">
+          <Button className="gradient-primary text-white border-0 gap-1.5" onClick={() => setShowCreateRoom(true)}>
+            <Plus className="w-4 h-4" /> Create New Room
+          </Button>
+        </div>
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -104,6 +160,51 @@ export function ChatRoomsPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={showCreateRoom} onOpenChange={setShowCreateRoom}>
+        <DialogContent className="glass border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create New Room</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Input
+              placeholder="Room name"
+              value={newRoomName}
+              onChange={e => setNewRoomName(e.target.value)}
+            />
+
+            <Textarea
+              placeholder="Room description"
+              value={newRoomDescription}
+              onChange={e => setNewRoomDescription(e.target.value)}
+              className="min-h-[90px]"
+            />
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Category</label>
+              <select
+                className="w-full h-10 rounded-md border border-border bg-muted/40 px-3 text-sm"
+                value={newRoomCategory}
+                onChange={e => setNewRoomCategory(e.target.value)}
+              >
+                {CATEGORIES.filter(c => c !== 'All').map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowCreateRoom(false)} disabled={creatingRoom}>
+                Cancel
+              </Button>
+              <Button className="flex-1 gradient-primary text-white border-0" onClick={handleCreateRoom} disabled={creatingRoom || !newRoomName.trim()}>
+                {creatingRoom ? 'Creating...' : 'Create Room'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

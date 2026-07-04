@@ -1,0 +1,73 @@
+-- Room membership tracking for real-time member_count
+create table if not exists public.room_members (
+  room_id uuid not null references public.chat_rooms(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
+alter table public.room_members enable row level security;
+
+drop policy if exists "Room members readable" on public.room_members;
+create policy "Room members readable" on public.room_members
+  for select using (true);
+
+drop policy if exists "Users join room" on public.room_members;
+create policy "Users join room" on public.room_members
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "Users leave room" on public.room_members;
+create policy "Users leave room" on public.room_members
+  for delete using (auth.uid() = user_id);
+
+create or replace function public.sync_chat_room_member_count(p_room_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.chat_rooms
+  set member_count = (
+    select count(*)::int from public.room_members rm where rm.room_id = p_room_id
+  )
+  where id = p_room_id;
+end;
+$$;
+
+create or replace function public.handle_room_members_count()
+returns trigger
+language plpgsql
+security definer
+as $$
+begin
+  if TG_OP = 'INSERT' then
+    perform public.sync_chat_room_member_count(NEW.room_id);
+    return NEW;
+  elsif TG_OP = 'DELETE' then
+    perform public.sync_chat_room_member_count(OLD.room_id);
+    return OLD;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_room_members_count on public.room_members;
+create trigger trg_room_members_count
+after insert or delete on public.room_members
+for each row execute function public.handle_room_members_count();
+
+-- Remove legacy/demo counts and recalculate from current membership rows
+update public.chat_rooms set member_count = 0;
+update public.chat_rooms cr
+set member_count = counts.cnt
+from (
+  select room_id, count(*)::int as cnt
+  from public.room_members
+  group by room_id
+) as counts
+where counts.room_id = cr.id;
+
+-- Allow authenticated users to create rooms
+drop policy if exists "Auth users create rooms" on public.chat_rooms;
+create policy "Auth users create rooms" on public.chat_rooms
+  for insert with check (auth.uid() is not null);

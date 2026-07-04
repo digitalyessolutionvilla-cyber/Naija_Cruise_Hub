@@ -59,7 +59,10 @@ export function HomePage() {
       .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
 
     if (tab === 'memes') {
-      query = query.in('type', ['meme', 'story']);
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      query = query
+        .in('type', ['meme', 'story'])
+        .gte('created_at', since);
     } else if (tab === 'trending') {
       query = query
         .order('likes_count', { ascending: false })
