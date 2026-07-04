@@ -1,0 +1,1440 @@
+-- Admin CMS foundation for CruiseHub
+-- Production-oriented tables, policies, and RPCs for admin operations.
+
+-- 0) Utility extensions
+create extension if not exists pgcrypto;
+
+-- 1) Core admin and security tables
+create table if not exists public.admin_users (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  role text not null check (role in (
+    'super_admin',
+    'finance_manager',
+    'community_manager',
+    'moderator',
+    'advertisement_manager',
+    'customer_support'
+  )),
+  permissions jsonb not null default '{}'::jsonb,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.user_security_flags (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  is_verified boolean not null default false,
+  is_suspended boolean not null default false,
+  is_banned boolean not null default false,
+  suspension_reason text,
+  banned_reason text,
+  suspended_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.admin_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references public.profiles(id) on delete set null,
+  actor_role text,
+  action text not null,
+  target_type text,
+  target_id text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.admin_notifications (
+  id uuid primary key default gen_random_uuid(),
+  type text not null,
+  title text not null,
+  body text,
+  severity text not null default 'info' check (severity in ('info', 'warning', 'critical')),
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- 2) Financial system tables
+create table if not exists public.user_wallets (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  cash_balance numeric(14,2) not null default 0,
+  cruise_coin_balance numeric(14,2) not null default 0,
+  pending_balance numeric(14,2) not null default 0,
+  total_earnings numeric(14,2) not null default 0,
+  total_withdrawals numeric(14,2) not null default 0,
+  is_frozen boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.coin_exchange_settings (
+  id boolean primary key default true,
+  coin_to_naira_rate numeric(12,4) not null default 1.0000,
+  updated_by uuid references public.profiles(id) on delete set null,
+  updated_at timestamptz not null default now(),
+  check (id)
+);
+
+create table if not exists public.wallet_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  transaction_type text not null check (transaction_type in (
+    'reward',
+    'referral',
+    'advertisement',
+    'coin_conversion',
+    'withdrawal',
+    'deposit',
+    'bonus',
+    'manual_admin_credit',
+    'manual_admin_debit'
+  )),
+  asset_type text not null check (asset_type in ('cash', 'coin')),
+  amount numeric(14,2) not null,
+  status text not null default 'completed' check (status in ('pending', 'completed', 'failed', 'reversed')),
+  description text,
+  reference_number text not null unique,
+  created_by uuid references public.profiles(id) on delete set null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.withdrawal_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  amount numeric(14,2) not null check (amount > 0),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'paid')),
+  payment_method text,
+  account_details jsonb not null default '{}'::jsonb,
+  reason text,
+  reviewed_by uuid references public.profiles(id) on delete set null,
+  review_notes text,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.platform_revenue_events (
+  id uuid primary key default gen_random_uuid(),
+  source text not null check (source in (
+    'advertisements',
+    'premium_subscriptions',
+    'coin_purchases',
+    'wallet_fees',
+    'sponsored_events'
+  )),
+  amount numeric(14,2) not null,
+  status text not null default 'completed' check (status in ('pending', 'completed', 'failed')),
+  reference_number text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- 3) Content and ad operations
+create table if not exists public.post_shares (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.reels (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  caption text,
+  video_url text not null,
+  likes_count integer not null default 0,
+  comments_count integer not null default 0,
+  shares_count integer not null default 0,
+  views_count integer not null default 0,
+  is_removed boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.content_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid references public.profiles(id) on delete set null,
+  target_type text not null check (target_type in ('user', 'post', 'comment', 'reel', 'meme', 'room_message', 'chat_room')),
+  target_id text not null,
+  reason text not null,
+  status text not null default 'pending' check (status in ('pending', 'reviewed', 'resolved', 'rejected')),
+  reviewed_by uuid references public.profiles(id) on delete set null,
+  review_notes text,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.moderation_actions (
+  id uuid primary key default gen_random_uuid(),
+  target_type text not null,
+  target_id text not null,
+  action text not null check (action in ('warn', 'flag', 'remove', 'restore', 'delete_permanent', 'suspend_user', 'ban_user')),
+  taken_by uuid references public.profiles(id) on delete set null,
+  notes text,
+  restorable boolean not null default true,
+  restored_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.ad_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  media_url text not null,
+  media_type text not null check (media_type in ('image', 'video')),
+  placement text not null default 'homepage_banner' check (placement in (
+    'homepage_banner',
+    'feed_ads',
+    'reels_ads',
+    'search_ads',
+    'chat_room_banners',
+    'sponsored_posts',
+    'event_sponsorships',
+    'profile_banners'
+  )),
+  destination_url text,
+  start_at timestamptz,
+  end_at timestamptz,
+  display_frequency integer not null default 1,
+  is_active boolean not null default true,
+  is_paused boolean not null default false,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ad_events (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.ad_campaigns(id) on delete cascade,
+  event_type text not null check (event_type in ('impression', 'click')),
+  user_id uuid references public.profiles(id) on delete set null,
+  session_id text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.traffic_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete set null,
+  page_path text not null,
+  source text,
+  device_type text,
+  operating_system text,
+  browser text,
+  session_id text,
+  duration_seconds integer,
+  created_at timestamptz not null default now()
+);
+
+-- 4) Column additions for moderation and analytics
+alter table public.posts add column if not exists is_removed boolean not null default false;
+alter table public.post_comments add column if not exists is_removed boolean not null default false;
+alter table public.room_messages add column if not exists is_removed boolean not null default false;
+alter table public.private_messages add column if not exists is_removed boolean not null default false;
+alter table public.chat_rooms add column if not exists is_removed boolean not null default false;
+
+-- 5) Indexes
+create index if not exists idx_profiles_created_at on public.profiles(created_at);
+create index if not exists idx_posts_created_at on public.posts(created_at);
+create index if not exists idx_room_messages_created_at on public.room_messages(created_at);
+create index if not exists idx_private_messages_created_at on public.private_messages(created_at);
+create index if not exists idx_wallet_transactions_user_created on public.wallet_transactions(user_id, created_at desc);
+create index if not exists idx_withdrawal_requests_status_created on public.withdrawal_requests(status, created_at desc);
+create index if not exists idx_content_reports_status_created on public.content_reports(status, created_at desc);
+create index if not exists idx_ad_events_campaign_type_created on public.ad_events(campaign_id, event_type, created_at desc);
+create index if not exists idx_traffic_events_created on public.traffic_events(created_at desc);
+
+-- 6) Common trigger helpers
+create or replace function public.set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  NEW.updated_at = now();
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_admin_users_updated_at on public.admin_users;
+create trigger trg_admin_users_updated_at before update on public.admin_users
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_withdrawal_requests_updated_at on public.withdrawal_requests;
+create trigger trg_withdrawal_requests_updated_at before update on public.withdrawal_requests
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_ad_campaigns_updated_at on public.ad_campaigns;
+create trigger trg_ad_campaigns_updated_at before update on public.ad_campaigns
+for each row execute function public.set_updated_at();
+
+create or replace function public.prevent_mutation_on_immutable_tables()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'This table is immutable. Create reversal entries instead.';
+end;
+$$;
+
+drop trigger if exists trg_wallet_tx_no_update on public.wallet_transactions;
+create trigger trg_wallet_tx_no_update before update or delete on public.wallet_transactions
+for each row execute function public.prevent_mutation_on_immutable_tables();
+
+drop trigger if exists trg_admin_audit_no_update on public.admin_audit_logs;
+create trigger trg_admin_audit_no_update before update or delete on public.admin_audit_logs
+for each row execute function public.prevent_mutation_on_immutable_tables();
+
+-- 7) Wallet bootstrap
+insert into public.user_wallets (user_id, cruise_coin_balance)
+select p.id, coalesce(p.coins, 0)::numeric
+from public.profiles p
+on conflict (user_id) do nothing;
+
+create or replace function public.ensure_wallet_for_profile()
+returns trigger language plpgsql security definer as $$
+begin
+  insert into public.user_wallets (user_id, cruise_coin_balance)
+  values (NEW.id, coalesce(NEW.coins, 0)::numeric)
+  on conflict (user_id) do nothing;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_profiles_wallet_bootstrap on public.profiles;
+create trigger trg_profiles_wallet_bootstrap
+after insert on public.profiles
+for each row execute function public.ensure_wallet_for_profile();
+
+insert into public.coin_exchange_settings (id, coin_to_naira_rate)
+values (true, 1.0000)
+on conflict (id) do nothing;
+
+-- 8) Admin auth helpers
+create or replace function public.is_admin_user(p_user_id uuid default auth.uid())
+returns boolean
+language plpgsql
+security definer
+stable
+as $$
+declare
+  v_email text;
+begin
+  v_email := lower(coalesce((auth.jwt() ->> 'email'), ''));
+
+  if v_email = 'delight.careerhub@gmail.com' then
+    return true;
+  end if;
+
+  return exists (
+    select 1
+    from public.admin_users au
+    where au.user_id = p_user_id
+      and au.is_active = true
+  );
+end;
+$$;
+
+create or replace function public.current_admin_role(p_user_id uuid default auth.uid())
+returns text
+language plpgsql
+security definer
+stable
+as $$
+declare
+  v_email text;
+  v_role text;
+begin
+  v_email := lower(coalesce((auth.jwt() ->> 'email'), ''));
+
+  if v_email = 'delight.careerhub@gmail.com' then
+    return 'super_admin';
+  end if;
+
+  select role into v_role
+  from public.admin_users
+  where user_id = p_user_id
+    and is_active = true;
+
+  return v_role;
+end;
+$$;
+
+create or replace function public.log_admin_action(
+  p_action text,
+  p_target_type text default null,
+  p_target_id text default null,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  insert into public.admin_audit_logs(actor_id, actor_role, action, target_type, target_id, metadata)
+  values (auth.uid(), public.current_admin_role(auth.uid()), p_action, p_target_type, p_target_id, coalesce(p_metadata, '{}'::jsonb));
+end;
+$$;
+
+-- Ensure default admin role exists once account exists
+insert into public.admin_users (user_id, role, permissions, is_active)
+select u.id, 'super_admin', '{"all": true}'::jsonb, true
+from auth.users u
+where lower(u.email) = 'delight.careerhub@gmail.com'
+on conflict (user_id) do update set role = 'super_admin', is_active = true;
+
+-- 9) Row-level security policies
+alter table public.admin_users enable row level security;
+alter table public.user_security_flags enable row level security;
+alter table public.admin_audit_logs enable row level security;
+alter table public.admin_notifications enable row level security;
+alter table public.user_wallets enable row level security;
+alter table public.coin_exchange_settings enable row level security;
+alter table public.wallet_transactions enable row level security;
+alter table public.withdrawal_requests enable row level security;
+alter table public.platform_revenue_events enable row level security;
+alter table public.post_shares enable row level security;
+alter table public.reels enable row level security;
+alter table public.content_reports enable row level security;
+alter table public.moderation_actions enable row level security;
+alter table public.ad_campaigns enable row level security;
+alter table public.ad_events enable row level security;
+alter table public.traffic_events enable row level security;
+
+-- Admin full access policies
+create policy if not exists "Admin full admin_users" on public.admin_users
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin full user_security_flags" on public.user_security_flags
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin read admin_audit_logs" on public.admin_audit_logs
+  for select using (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin manage admin_notifications" on public.admin_notifications
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Users own wallet read" on public.user_wallets
+  for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+create policy if not exists "Admin manage wallets" on public.user_wallets
+  for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Users own wallet tx read" on public.wallet_transactions
+  for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+create policy if not exists "Admin insert wallet tx" on public.wallet_transactions
+  for insert with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Users own withdrawals read" on public.withdrawal_requests
+  for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+create policy if not exists "Users create withdrawals" on public.withdrawal_requests
+  for insert with check (auth.uid() = user_id);
+create policy if not exists "Admin update withdrawals" on public.withdrawal_requests
+  for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin manage exchange settings" on public.coin_exchange_settings
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin manage revenue" on public.platform_revenue_events
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Public share read" on public.post_shares for select using (true);
+create policy if not exists "Auth share create" on public.post_shares for insert with check (auth.uid() = user_id);
+
+create policy if not exists "Public reels read" on public.reels for select using (true);
+create policy if not exists "Auth reels create" on public.reels for insert with check (auth.uid() = user_id);
+create policy if not exists "Own reels update" on public.reels for update using (auth.uid() = user_id);
+
+create policy if not exists "Auth create reports" on public.content_reports for insert with check (auth.uid() = reporter_id);
+create policy if not exists "Own reports read" on public.content_reports for select using (auth.uid() = reporter_id or public.is_admin_user(auth.uid()));
+create policy if not exists "Admin update reports" on public.content_reports for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin manage moderation actions" on public.moderation_actions
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Public read ads" on public.ad_campaigns for select using (is_active = true and is_paused = false);
+create policy if not exists "Admin manage ads" on public.ad_campaigns
+  for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Public insert ad events" on public.ad_events
+  for insert with check (true);
+create policy if not exists "Admin read ad events" on public.ad_events
+  for select using (public.is_admin_user(auth.uid()));
+
+create policy if not exists "Admin read traffic" on public.traffic_events
+  for select using (public.is_admin_user(auth.uid()));
+create policy if not exists "Auth insert traffic" on public.traffic_events
+  for insert with check (auth.uid() = user_id or user_id is null);
+
+-- 10) Admin RPC functions
+create or replace function public.admin_get_dashboard_metrics()
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_today date := current_date;
+  v_month_start date := date_trunc('month', now())::date;
+  v_result jsonb;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  select jsonb_build_object(
+    'total_registered_users', (select count(*) from public.profiles),
+    'active_users_today', (select count(distinct user_id) from public.daily_logins where login_date = v_today),
+    'online_users', (select count(*) from public.profiles where is_online = true),
+    'new_signups_today', (select count(*) from public.profiles where created_at::date = v_today),
+    'new_signups_week', (select count(*) from public.profiles where created_at >= now() - interval '7 days'),
+    'new_signups_month', (select count(*) from public.profiles where created_at::date >= v_month_start),
+    'total_posts', (select count(*) from public.posts),
+    'total_memes', (select count(*) from public.posts where type = 'meme'),
+    'total_reels', (select count(*) from public.reels),
+    'total_comments', (select count(*) from public.post_comments),
+    'total_shares', (select count(*) from public.post_shares),
+    'total_likes', (select count(*) from public.post_likes),
+    'total_chat_messages', (select (select count(*) from public.room_messages) + (select count(*) from public.private_messages)),
+    'active_chat_rooms', (select count(*) from public.chat_rooms where is_active = true and coalesce(is_removed, false) = false),
+    'daily_revenue', (select coalesce(sum(amount), 0) from public.platform_revenue_events where status = 'completed' and created_at::date = v_today),
+    'monthly_revenue', (select coalesce(sum(amount), 0) from public.platform_revenue_events where status = 'completed' and created_at::date >= v_month_start),
+    'coins_in_circulation', (select coalesce(sum(coins), 0) from public.profiles),
+    'wallet_balances', (select coalesce(sum(cash_balance), 0) from public.user_wallets),
+    'pending_withdrawals', (select count(*) from public.withdrawal_requests where status = 'pending'),
+    'approved_withdrawals', (select count(*) from public.withdrawal_requests where status in ('approved','paid')),
+    'total_advertisements', (select count(*) from public.ad_campaigns),
+    'active_advertisements', (select count(*) from public.ad_campaigns where is_active = true and is_paused = false),
+    'reported_users', (select count(*) from public.content_reports where target_type = 'user' and status = 'pending'),
+    'reported_posts', (select count(*) from public.content_reports where target_type in ('post','meme','reel') and status = 'pending'),
+    'banned_users', (select count(*) from public.user_security_flags where is_banned = true)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.admin_get_growth_charts(p_days integer default 30)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_days integer := greatest(1, least(p_days, 365));
+  v_result jsonb;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  with date_series as (
+    select generate_series(current_date - (v_days - 1), current_date, interval '1 day')::date as day
+  ),
+  signups as (
+    select d.day, coalesce(count(p.id), 0) as value
+    from date_series d
+    left join public.profiles p on p.created_at::date = d.day
+    group by d.day
+    order by d.day
+  ),
+  traffic as (
+    select d.day, coalesce(count(t.id), 0) as value
+    from date_series d
+    left join public.traffic_events t on t.created_at::date = d.day
+    group by d.day
+    order by d.day
+  ),
+  revenue as (
+    select d.day, coalesce(sum(r.amount), 0) as value
+    from date_series d
+    left join public.platform_revenue_events r on r.created_at::date = d.day and r.status = 'completed'
+    group by d.day
+    order by d.day
+  ),
+  coins as (
+    select d.day, coalesce(sum(w.cruise_coin_balance), 0) as value
+    from date_series d
+    left join public.user_wallets w on true
+    group by d.day
+    order by d.day
+  ),
+  ad_perf as (
+    select c.id,
+      c.title,
+      count(*) filter (where e.event_type = 'impression')::int as impressions,
+      count(*) filter (where e.event_type = 'click')::int as clicks
+    from public.ad_campaigns c
+    left join public.ad_events e on e.campaign_id = c.id and e.created_at >= now() - (v_days || ' days')::interval
+    group by c.id, c.title
+    order by clicks desc, impressions desc
+    limit 10
+  ),
+  wallet_tx as (
+    select d.day, coalesce(count(wt.id), 0) as value
+    from date_series d
+    left join public.wallet_transactions wt on wt.created_at::date = d.day
+    group by d.day
+    order by d.day
+  ),
+  hourly_active as (
+    select h.hour,
+      coalesce(count(distinct te.user_id), 0)::int as value
+    from (
+      select generate_series(0, 23) as hour
+    ) h
+    left join public.traffic_events te
+      on date_part('hour', te.created_at) = h.hour
+      and te.created_at >= now() - interval '1 day'
+    group by h.hour
+    order by h.hour
+  )
+  select jsonb_build_object(
+    'user_growth', (select jsonb_agg(jsonb_build_object('date', day, 'value', value)) from signups),
+    'daily_traffic', (select jsonb_agg(jsonb_build_object('date', day, 'value', value)) from traffic),
+    'hourly_active_users', (select jsonb_agg(jsonb_build_object('hour', hour, 'value', value)) from hourly_active),
+    'revenue_trends', (select jsonb_agg(jsonb_build_object('date', day, 'value', value)) from revenue),
+    'coin_circulation', (select jsonb_agg(jsonb_build_object('date', day, 'value', value)) from coins),
+    'wallet_transactions', (select jsonb_agg(jsonb_build_object('date', day, 'value', value)) from wallet_tx),
+    'advertisement_performance', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'campaign_id', id,
+        'title', title,
+        'impressions', impressions,
+        'clicks', clicks,
+        'ctr', case when impressions = 0 then 0 else round((clicks::numeric / impressions::numeric) * 100, 2) end
+      )), '[]'::jsonb)
+      from ad_perf
+    )
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.admin_get_users(
+  p_query text default '',
+  p_limit integer default 20,
+  p_offset integer default 0
+)
+returns table(
+  user_id uuid,
+  username text,
+  level text,
+  xp integer,
+  coins integer,
+  created_at timestamptz,
+  is_online boolean,
+  is_verified boolean,
+  is_suspended boolean,
+  is_banned boolean,
+  role text,
+  cash_balance numeric,
+  coin_balance numeric
+)
+language sql
+security definer
+as $$
+  select
+    p.id as user_id,
+    p.username,
+    p.level,
+    coalesce(p.xp, 0) as xp,
+    coalesce(p.coins, 0) as coins,
+    p.created_at,
+    coalesce(p.is_online, false) as is_online,
+    coalesce(usf.is_verified, false) as is_verified,
+    coalesce(usf.is_suspended, false) as is_suspended,
+    coalesce(usf.is_banned, false) as is_banned,
+    au.role,
+    coalesce(w.cash_balance, 0) as cash_balance,
+    coalesce(w.cruise_coin_balance, 0) as coin_balance
+  from public.profiles p
+  left join public.user_security_flags usf on usf.user_id = p.id
+  left join public.admin_users au on au.user_id = p.id and au.is_active = true
+  left join public.user_wallets w on w.user_id = p.id
+  where public.is_admin_user(auth.uid())
+    and (
+      p_query = ''
+      or p.username ilike '%' || p_query || '%'
+      or p.id::text ilike '%' || p_query || '%'
+    )
+  order by p.created_at desc
+  limit greatest(1, least(p_limit, 200))
+  offset greatest(0, p_offset);
+$$;
+
+create or replace function public.admin_set_user_state(
+  p_user_id uuid,
+  p_action text,
+  p_reason text default null,
+  p_suspended_until timestamptz default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  insert into public.user_security_flags(user_id)
+  values (p_user_id)
+  on conflict (user_id) do nothing;
+
+  if p_action = 'verify' then
+    update public.user_security_flags
+      set is_verified = true,
+          updated_at = now()
+      where user_id = p_user_id;
+  elsif p_action = 'suspend' then
+    update public.user_security_flags
+      set is_suspended = true,
+          suspension_reason = p_reason,
+          suspended_until = p_suspended_until,
+          updated_at = now()
+      where user_id = p_user_id;
+  elsif p_action = 'ban' then
+    update public.user_security_flags
+      set is_banned = true,
+          banned_reason = p_reason,
+          is_suspended = true,
+          updated_at = now()
+      where user_id = p_user_id;
+  elsif p_action = 'reactivate' then
+    update public.user_security_flags
+      set is_suspended = false,
+          is_banned = false,
+          suspension_reason = null,
+          banned_reason = null,
+          suspended_until = null,
+          updated_at = now()
+      where user_id = p_user_id;
+  else
+    raise exception 'Unsupported action';
+  end if;
+
+  perform public.log_admin_action(
+    'user_state_' || p_action,
+    'user',
+    p_user_id::text,
+    jsonb_build_object('reason', p_reason, 'suspended_until', p_suspended_until)
+  );
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.admin_assign_role(
+  p_user_id uuid,
+  p_role text
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  if p_role not in (
+    'super_admin',
+    'finance_manager',
+    'community_manager',
+    'moderator',
+    'advertisement_manager',
+    'customer_support'
+  ) then
+    raise exception 'Invalid role';
+  end if;
+
+  insert into public.admin_users(user_id, role, permissions, is_active)
+  values (p_user_id, p_role, '{}'::jsonb, true)
+  on conflict (user_id)
+  do update set role = excluded.role, is_active = true;
+
+  perform public.log_admin_action('assign_role', 'user', p_user_id::text, jsonb_build_object('role', p_role));
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.admin_reset_username(
+  p_user_id uuid,
+  p_new_username text
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  update public.profiles
+  set username = p_new_username
+  where id = p_user_id;
+
+  perform public.log_admin_action('reset_username', 'user', p_user_id::text, jsonb_build_object('new_username', p_new_username));
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.admin_adjust_wallet(
+  p_user_id uuid,
+  p_asset_type text,
+  p_amount numeric,
+  p_description text,
+  p_transaction_type text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_tx_type text;
+  v_ref text;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  if p_asset_type not in ('cash', 'coin') then
+    raise exception 'Invalid asset type';
+  end if;
+
+  if p_amount = 0 then
+    raise exception 'Amount cannot be zero';
+  end if;
+
+  insert into public.user_wallets(user_id)
+  values (p_user_id)
+  on conflict (user_id) do nothing;
+
+  if p_asset_type = 'cash' then
+    update public.user_wallets
+    set cash_balance = cash_balance + p_amount,
+        total_earnings = case when p_amount > 0 then total_earnings + p_amount else total_earnings end,
+        updated_at = now()
+    where user_id = p_user_id
+      and (cash_balance + p_amount) >= 0;
+  else
+    update public.user_wallets
+    set cruise_coin_balance = cruise_coin_balance + p_amount,
+        updated_at = now()
+    where user_id = p_user_id
+      and (cruise_coin_balance + p_amount) >= 0;
+  end if;
+
+  if not found then
+    raise exception 'Insufficient balance for debit';
+  end if;
+
+  v_tx_type := coalesce(
+    p_transaction_type,
+    case when p_amount >= 0 then 'manual_admin_credit' else 'manual_admin_debit' end
+  );
+
+  v_ref := 'ADM-' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+  insert into public.wallet_transactions(
+    user_id,
+    transaction_type,
+    asset_type,
+    amount,
+    status,
+    description,
+    reference_number,
+    created_by,
+    metadata
+  ) values (
+    p_user_id,
+    v_tx_type,
+    p_asset_type,
+    p_amount,
+    'completed',
+    p_description,
+    v_ref,
+    auth.uid(),
+    jsonb_build_object('source', 'admin_adjust_wallet')
+  );
+
+  perform public.log_admin_action(
+    'wallet_adjustment',
+    'user_wallet',
+    p_user_id::text,
+    jsonb_build_object('asset_type', p_asset_type, 'amount', p_amount, 'description', p_description)
+  );
+
+  return jsonb_build_object('ok', true, 'reference_number', v_ref);
+end;
+$$;
+
+create or replace function public.request_withdrawal(
+  p_amount numeric,
+  p_payment_method text,
+  p_account_details jsonb,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_ref text;
+begin
+  if auth.uid() is null then
+    raise exception 'Unauthorized';
+  end if;
+
+  insert into public.user_wallets(user_id)
+  values (auth.uid())
+  on conflict (user_id) do nothing;
+
+  update public.user_wallets
+  set cash_balance = cash_balance - p_amount,
+      pending_balance = pending_balance + p_amount,
+      updated_at = now()
+  where user_id = auth.uid()
+    and is_frozen = false
+    and cash_balance >= p_amount;
+
+  if not found then
+    raise exception 'Insufficient balance or wallet frozen';
+  end if;
+
+  insert into public.withdrawal_requests(
+    user_id,
+    amount,
+    status,
+    payment_method,
+    account_details,
+    reason
+  ) values (
+    auth.uid(),
+    p_amount,
+    'pending',
+    p_payment_method,
+    coalesce(p_account_details, '{}'::jsonb),
+    p_reason
+  );
+
+  v_ref := 'WTH-' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+  insert into public.wallet_transactions(
+    user_id,
+    transaction_type,
+    asset_type,
+    amount,
+    status,
+    description,
+    reference_number,
+    created_by,
+    metadata
+  ) values (
+    auth.uid(),
+    'withdrawal',
+    'cash',
+    p_amount,
+    'pending',
+    'Withdrawal request submitted',
+    v_ref,
+    auth.uid(),
+    jsonb_build_object('source', 'request_withdrawal')
+  );
+
+  insert into public.admin_notifications(type, title, body, severity)
+  values ('withdrawal', 'New withdrawal request', 'A new withdrawal request was created.', 'warning');
+
+  return jsonb_build_object('ok', true, 'reference_number', v_ref);
+end;
+$$;
+
+create or replace function public.admin_get_withdrawals(
+  p_status text default null,
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns table(
+  id uuid,
+  user_id uuid,
+  username text,
+  amount numeric,
+  status text,
+  payment_method text,
+  account_details jsonb,
+  reason text,
+  review_notes text,
+  created_at timestamptz,
+  reviewed_at timestamptz
+)
+language sql
+security definer
+as $$
+  select
+    wr.id,
+    wr.user_id,
+    p.username,
+    wr.amount,
+    wr.status,
+    wr.payment_method,
+    wr.account_details,
+    wr.reason,
+    wr.review_notes,
+    wr.created_at,
+    wr.reviewed_at
+  from public.withdrawal_requests wr
+  join public.profiles p on p.id = wr.user_id
+  where public.is_admin_user(auth.uid())
+    and (p_status is null or wr.status = p_status)
+  order by wr.created_at desc
+  limit greatest(1, least(p_limit, 200))
+  offset greatest(0, p_offset);
+$$;
+
+create or replace function public.admin_review_withdrawal(
+  p_withdrawal_id uuid,
+  p_decision text,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_req public.withdrawal_requests%rowtype;
+  v_ref text;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  select * into v_req
+  from public.withdrawal_requests
+  where id = p_withdrawal_id
+  for update;
+
+  if not found then
+    raise exception 'Withdrawal not found';
+  end if;
+
+  if v_req.status <> 'pending' then
+    raise exception 'Only pending withdrawals can be reviewed';
+  end if;
+
+  if p_decision = 'approve' then
+    update public.withdrawal_requests
+    set status = 'approved',
+        reviewed_by = auth.uid(),
+        review_notes = p_reason,
+        reviewed_at = now(),
+        updated_at = now()
+    where id = p_withdrawal_id;
+
+    update public.user_wallets
+    set pending_balance = pending_balance - v_req.amount,
+        total_withdrawals = total_withdrawals + v_req.amount,
+        updated_at = now()
+    where user_id = v_req.user_id;
+
+    update public.withdrawal_requests
+    set status = 'paid', updated_at = now()
+    where id = p_withdrawal_id;
+
+    v_ref := 'WPD-' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+    insert into public.wallet_transactions(
+      user_id,
+      transaction_type,
+      asset_type,
+      amount,
+      status,
+      description,
+      reference_number,
+      created_by,
+      metadata
+    ) values (
+      v_req.user_id,
+      'withdrawal',
+      'cash',
+      -v_req.amount,
+      'completed',
+      'Withdrawal paid by admin',
+      v_ref,
+      auth.uid(),
+      jsonb_build_object('withdrawal_id', p_withdrawal_id)
+    );
+  elsif p_decision = 'reject' then
+    update public.withdrawal_requests
+    set status = 'rejected',
+        reviewed_by = auth.uid(),
+        review_notes = p_reason,
+        reviewed_at = now(),
+        updated_at = now()
+    where id = p_withdrawal_id;
+
+    update public.user_wallets
+    set pending_balance = pending_balance - v_req.amount,
+        cash_balance = cash_balance + v_req.amount,
+        updated_at = now()
+    where user_id = v_req.user_id;
+  else
+    raise exception 'Invalid decision';
+  end if;
+
+  perform public.log_admin_action(
+    'review_withdrawal_' || p_decision,
+    'withdrawal',
+    p_withdrawal_id::text,
+    jsonb_build_object('reason', p_reason)
+  );
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.admin_list_reports(
+  p_status text default null,
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns table(
+  id uuid,
+  reporter_id uuid,
+  reporter_username text,
+  target_type text,
+  target_id text,
+  reason text,
+  status text,
+  review_notes text,
+  created_at timestamptz,
+  reviewed_at timestamptz
+)
+language sql
+security definer
+as $$
+  select
+    r.id,
+    r.reporter_id,
+    p.username as reporter_username,
+    r.target_type,
+    r.target_id,
+    r.reason,
+    r.status,
+    r.review_notes,
+    r.created_at,
+    r.reviewed_at
+  from public.content_reports r
+  left join public.profiles p on p.id = r.reporter_id
+  where public.is_admin_user(auth.uid())
+    and (p_status is null or r.status = p_status)
+  order by r.created_at desc
+  limit greatest(1, least(p_limit, 200))
+  offset greatest(0, p_offset);
+$$;
+
+create or replace function public.admin_moderate_content(
+  p_report_id uuid,
+  p_action text,
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_report public.content_reports%rowtype;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  select * into v_report
+  from public.content_reports
+  where id = p_report_id
+  for update;
+
+  if not found then
+    raise exception 'Report not found';
+  end if;
+
+  if p_action = 'remove' then
+    if v_report.target_type in ('post', 'meme') then
+      update public.posts set is_removed = true where id::text = v_report.target_id;
+    elsif v_report.target_type = 'comment' then
+      update public.post_comments set is_removed = true where id::text = v_report.target_id;
+    elsif v_report.target_type = 'reel' then
+      update public.reels set is_removed = true where id::text = v_report.target_id;
+    elsif v_report.target_type = 'room_message' then
+      update public.room_messages set is_removed = true where id::text = v_report.target_id;
+    elsif v_report.target_type = 'chat_room' then
+      update public.chat_rooms set is_removed = true where id::text = v_report.target_id;
+    end if;
+  elsif p_action = 'restore' then
+    if v_report.target_type in ('post', 'meme') then
+      update public.posts set is_removed = false where id::text = v_report.target_id;
+    elsif v_report.target_type = 'comment' then
+      update public.post_comments set is_removed = false where id::text = v_report.target_id;
+    elsif v_report.target_type = 'reel' then
+      update public.reels set is_removed = false where id::text = v_report.target_id;
+    elsif v_report.target_type = 'room_message' then
+      update public.room_messages set is_removed = false where id::text = v_report.target_id;
+    elsif v_report.target_type = 'chat_room' then
+      update public.chat_rooms set is_removed = false where id::text = v_report.target_id;
+    end if;
+  elsif p_action = 'delete_permanent' then
+    if v_report.target_type in ('post', 'meme') then
+      delete from public.posts where id::text = v_report.target_id;
+    elsif v_report.target_type = 'comment' then
+      delete from public.post_comments where id::text = v_report.target_id;
+    elsif v_report.target_type = 'reel' then
+      delete from public.reels where id::text = v_report.target_id;
+    elsif v_report.target_type = 'room_message' then
+      delete from public.room_messages where id::text = v_report.target_id;
+    end if;
+  elsif p_action = 'warn' then
+    null;
+  else
+    raise exception 'Unsupported moderation action';
+  end if;
+
+  update public.content_reports
+  set status = 'resolved',
+      reviewed_by = auth.uid(),
+      review_notes = p_notes,
+      reviewed_at = now()
+  where id = p_report_id;
+
+  insert into public.moderation_actions(target_type, target_id, action, taken_by, notes)
+  values (v_report.target_type, v_report.target_id, p_action, auth.uid(), p_notes);
+
+  perform public.log_admin_action(
+    'moderate_' || p_action,
+    v_report.target_type,
+    v_report.target_id,
+    jsonb_build_object('report_id', p_report_id, 'notes', p_notes)
+  );
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.admin_upsert_ad_campaign(
+  p_id uuid,
+  p_title text,
+  p_media_url text,
+  p_media_type text,
+  p_placement text,
+  p_destination_url text,
+  p_start_at timestamptz,
+  p_end_at timestamptz,
+  p_display_frequency integer,
+  p_is_active boolean,
+  p_is_paused boolean
+)
+returns uuid
+language plpgsql
+security definer
+as $$
+declare
+  v_id uuid;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  if p_id is null then
+    insert into public.ad_campaigns(
+      title, media_url, media_type, placement, destination_url,
+      start_at, end_at, display_frequency, is_active, is_paused, created_by
+    ) values (
+      p_title, p_media_url, p_media_type, p_placement, p_destination_url,
+      p_start_at, p_end_at, coalesce(p_display_frequency, 1),
+      coalesce(p_is_active, true), coalesce(p_is_paused, false), auth.uid()
+    ) returning id into v_id;
+  else
+    update public.ad_campaigns
+    set title = p_title,
+        media_url = p_media_url,
+        media_type = p_media_type,
+        placement = p_placement,
+        destination_url = p_destination_url,
+        start_at = p_start_at,
+        end_at = p_end_at,
+        display_frequency = coalesce(p_display_frequency, display_frequency),
+        is_active = coalesce(p_is_active, is_active),
+        is_paused = coalesce(p_is_paused, is_paused)
+    where id = p_id;
+    v_id := p_id;
+  end if;
+
+  perform public.log_admin_action('upsert_ad_campaign', 'ad_campaign', v_id::text, jsonb_build_object('title', p_title));
+  return v_id;
+end;
+$$;
+
+create or replace function public.admin_get_ads()
+returns table(
+  id uuid,
+  title text,
+  media_url text,
+  media_type text,
+  placement text,
+  destination_url text,
+  start_at timestamptz,
+  end_at timestamptz,
+  display_frequency integer,
+  is_active boolean,
+  is_paused boolean,
+  impressions bigint,
+  clicks bigint,
+  ctr numeric
+)
+language sql
+security definer
+as $$
+  select
+    c.id,
+    c.title,
+    c.media_url,
+    c.media_type,
+    c.placement,
+    c.destination_url,
+    c.start_at,
+    c.end_at,
+    c.display_frequency,
+    c.is_active,
+    c.is_paused,
+    count(e.id) filter (where e.event_type = 'impression') as impressions,
+    count(e.id) filter (where e.event_type = 'click') as clicks,
+    case
+      when count(e.id) filter (where e.event_type = 'impression') = 0 then 0
+      else round(((count(e.id) filter (where e.event_type = 'click'))::numeric / (count(e.id) filter (where e.event_type = 'impression'))::numeric) * 100, 2)
+    end as ctr
+  from public.ad_campaigns c
+  left join public.ad_events e on e.campaign_id = c.id
+  where public.is_admin_user(auth.uid())
+  group by c.id
+  order by c.created_at desc;
+$$;
+
+create or replace function public.track_ad_event(
+  p_campaign_id uuid,
+  p_event_type text,
+  p_session_id text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+begin
+  if p_event_type not in ('impression', 'click') then
+    raise exception 'Invalid ad event type';
+  end if;
+
+  insert into public.ad_events(campaign_id, event_type, user_id, session_id)
+  values (p_campaign_id, p_event_type, auth.uid(), p_session_id);
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.get_active_ads(p_placement text default 'homepage_banner')
+returns table(
+  id uuid,
+  title text,
+  media_url text,
+  media_type text,
+  destination_url text,
+  placement text,
+  display_frequency integer
+)
+language sql
+security definer
+as $$
+  select
+    id,
+    title,
+    media_url,
+    media_type,
+    destination_url,
+    placement,
+    display_frequency
+  from public.ad_campaigns
+  where is_active = true
+    and is_paused = false
+    and placement = p_placement
+    and (start_at is null or start_at <= now())
+    and (end_at is null or end_at >= now())
+  order by created_at desc;
+$$;
+
+create or replace function public.admin_get_wallet_transactions(
+  p_user_id uuid default null,
+  p_limit integer default 100,
+  p_offset integer default 0
+)
+returns table(
+  id uuid,
+  user_id uuid,
+  username text,
+  transaction_type text,
+  asset_type text,
+  amount numeric,
+  status text,
+  description text,
+  reference_number text,
+  created_at timestamptz
+)
+language sql
+security definer
+as $$
+  select
+    wt.id,
+    wt.user_id,
+    p.username,
+    wt.transaction_type,
+    wt.asset_type,
+    wt.amount,
+    wt.status,
+    wt.description,
+    wt.reference_number,
+    wt.created_at
+  from public.wallet_transactions wt
+  join public.profiles p on p.id = wt.user_id
+  where public.is_admin_user(auth.uid())
+    and (p_user_id is null or wt.user_id = p_user_id)
+  order by wt.created_at desc
+  limit greatest(1, least(p_limit, 500))
+  offset greatest(0, p_offset);
+$$;
+
+create or replace function public.admin_get_revenue_summary()
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_result jsonb;
+begin
+  if not public.is_admin_user(auth.uid()) then
+    raise exception 'Unauthorized';
+  end if;
+
+  select jsonb_build_object(
+    'daily_revenue', coalesce((select sum(amount) from public.platform_revenue_events where status = 'completed' and created_at::date = current_date), 0),
+    'weekly_revenue', coalesce((select sum(amount) from public.platform_revenue_events where status = 'completed' and created_at >= now() - interval '7 days'), 0),
+    'monthly_revenue', coalesce((select sum(amount) from public.platform_revenue_events where status = 'completed' and created_at >= date_trunc('month', now())), 0),
+    'annual_revenue', coalesce((select sum(amount) from public.platform_revenue_events where status = 'completed' and created_at >= date_trunc('year', now())), 0)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.admin_get_my_role()
+returns jsonb
+language plpgsql
+security definer
+as $$
+begin
+  if not public.is_admin_user(auth.uid()) then
+    return jsonb_build_object('is_admin', false, 'role', null);
+  end if;
+
+  return jsonb_build_object(
+    'is_admin', true,
+    'role', public.current_admin_role(auth.uid())
+  );
+end;
+$$;

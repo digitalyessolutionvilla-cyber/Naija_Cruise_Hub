@@ -24,6 +24,16 @@ interface StoryUser {
   is_online: boolean;
 }
 
+interface ActiveAd {
+  id: string;
+  title: string;
+  media_url: string;
+  media_type: 'image' | 'video';
+  destination_url: string | null;
+  placement: string;
+  display_frequency: number;
+}
+
 const TABS: { id: FeedTab; label: string; icon: typeof TrendingUp }[] = [
   { id: 'foryou', label: 'For You', icon: Star },
   { id: 'trending', label: 'Trending', icon: TrendingUp },
@@ -47,6 +57,7 @@ export function HomePage() {
   const [page, setPage] = useState(0);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [newPostsAvailable, setNewPostsAvailable] = useState(false);
+  const [activeAd, setActiveAd] = useState<ActiveAd | null>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
 
   const loadPosts = useCallback(async (tab: FeedTab, pageNum = 0, append = false) => {
@@ -155,6 +166,23 @@ export function HomePage() {
       .order('member_count', { ascending: false })
       .limit(3)
       .then(({ data }) => { if (data) setTrendingRooms(data as ChatRoom[]); });
+
+    const fetchActiveAd = async () => {
+      const { data } = await (supabase as any).rpc('get_active_ads', { p_placement: 'homepage_banner' });
+      if (data && data.length > 0) {
+        const ad = data[0] as ActiveAd;
+        setActiveAd(ad);
+        await (supabase as any).rpc('track_ad_event', {
+          p_campaign_id: ad.id,
+          p_event_type: 'impression',
+          p_session_id: null,
+        });
+      } else {
+        setActiveAd(null);
+      }
+    };
+
+    fetchActiveAd();
   }, [profile?.id, fetchLikedIds]);
 
   const handleRefresh = () => {
@@ -170,6 +198,42 @@ export function HomePage() {
   return (
     <AppLayout>
       <TopBar />
+
+      {activeAd && (
+        <div className="max-w-6xl mx-auto w-full px-4 pt-2">
+          <a
+            href={activeAd.destination_url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-2xl overflow-hidden border border-border bg-card"
+            onClick={async () => {
+              await (supabase as any).rpc('track_ad_event', {
+                p_campaign_id: activeAd.id,
+                p_event_type: 'click',
+                p_session_id: null,
+              });
+            }}
+          >
+            <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border">
+              Sponsored
+            </div>
+            {activeAd.media_type === 'video' ? (
+              <video
+                src={activeAd.media_url}
+                className="w-full max-h-56 object-cover"
+                controls
+                muted
+              />
+            ) : (
+              <img
+                src={activeAd.media_url}
+                alt={activeAd.title}
+                className="w-full max-h-56 object-cover"
+              />
+            )}
+          </a>
+        </div>
+      )}
 
       {/* New Posts Banner */}
       <AnimatePresence>
