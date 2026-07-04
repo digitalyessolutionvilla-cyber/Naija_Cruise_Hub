@@ -393,67 +393,95 @@ alter table public.ad_events enable row level security;
 alter table public.traffic_events enable row level security;
 
 -- Admin full access policies
-create policy if not exists "Admin full admin_users" on public.admin_users
+drop policy if exists "Admin full admin_users" on public.admin_users;
+create policy "Admin full admin_users" on public.admin_users
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin full user_security_flags" on public.user_security_flags
+drop policy if exists "Admin full user_security_flags" on public.user_security_flags;
+create policy "Admin full user_security_flags" on public.user_security_flags
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin read admin_audit_logs" on public.admin_audit_logs
+drop policy if exists "Admin read admin_audit_logs" on public.admin_audit_logs;
+create policy "Admin read admin_audit_logs" on public.admin_audit_logs
   for select using (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin manage admin_notifications" on public.admin_notifications
+drop policy if exists "Admin manage admin_notifications" on public.admin_notifications;
+create policy "Admin manage admin_notifications" on public.admin_notifications
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Users own wallet read" on public.user_wallets
+drop policy if exists "Users own wallet read" on public.user_wallets;
+create policy "Users own wallet read" on public.user_wallets
   for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
-create policy if not exists "Admin manage wallets" on public.user_wallets
+drop policy if exists "Admin manage wallets" on public.user_wallets;
+create policy "Admin manage wallets" on public.user_wallets
   for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Users own wallet tx read" on public.wallet_transactions
+drop policy if exists "Users own wallet tx read" on public.wallet_transactions;
+create policy "Users own wallet tx read" on public.wallet_transactions
   for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
-create policy if not exists "Admin insert wallet tx" on public.wallet_transactions
+drop policy if exists "Admin insert wallet tx" on public.wallet_transactions;
+create policy "Admin insert wallet tx" on public.wallet_transactions
   for insert with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Users own withdrawals read" on public.withdrawal_requests
+drop policy if exists "Users own withdrawals read" on public.withdrawal_requests;
+create policy "Users own withdrawals read" on public.withdrawal_requests
   for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
-create policy if not exists "Users create withdrawals" on public.withdrawal_requests
+drop policy if exists "Users create withdrawals" on public.withdrawal_requests;
+create policy "Users create withdrawals" on public.withdrawal_requests
   for insert with check (auth.uid() = user_id);
-create policy if not exists "Admin update withdrawals" on public.withdrawal_requests
+drop policy if exists "Admin update withdrawals" on public.withdrawal_requests;
+create policy "Admin update withdrawals" on public.withdrawal_requests
   for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin manage exchange settings" on public.coin_exchange_settings
+drop policy if exists "Admin manage exchange settings" on public.coin_exchange_settings;
+create policy "Admin manage exchange settings" on public.coin_exchange_settings
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin manage revenue" on public.platform_revenue_events
+drop policy if exists "Admin manage revenue" on public.platform_revenue_events;
+create policy "Admin manage revenue" on public.platform_revenue_events
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Public share read" on public.post_shares for select using (true);
-create policy if not exists "Auth share create" on public.post_shares for insert with check (auth.uid() = user_id);
+drop policy if exists "Public share read" on public.post_shares;
+create policy "Public share read" on public.post_shares for select using (true);
+drop policy if exists "Auth share create" on public.post_shares;
+create policy "Auth share create" on public.post_shares for insert with check (auth.uid() = user_id);
 
-create policy if not exists "Public reels read" on public.reels for select using (true);
-create policy if not exists "Auth reels create" on public.reels for insert with check (auth.uid() = user_id);
-create policy if not exists "Own reels update" on public.reels for update using (auth.uid() = user_id);
+drop policy if exists "Public reels read" on public.reels;
+create policy "Public reels read" on public.reels for select using (true);
+drop policy if exists "Auth reels create" on public.reels;
+create policy "Auth reels create" on public.reels for insert with check (auth.uid() = user_id);
+drop policy if exists "Own reels update" on public.reels;
+create policy "Own reels update" on public.reels for update using (auth.uid() = user_id);
 
-create policy if not exists "Auth create reports" on public.content_reports for insert with check (auth.uid() = reporter_id);
-create policy if not exists "Own reports read" on public.content_reports for select using (auth.uid() = reporter_id or public.is_admin_user(auth.uid()));
-create policy if not exists "Admin update reports" on public.content_reports for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
+drop policy if exists "Auth create reports" on public.content_reports;
+create policy "Auth create reports" on public.content_reports for insert with check (auth.uid() = reporter_id);
+drop policy if exists "Own reports read" on public.content_reports;
+create policy "Own reports read" on public.content_reports for select using (auth.uid() = reporter_id or public.is_admin_user(auth.uid()));
+drop policy if exists "Admin update reports" on public.content_reports;
+create policy "Admin update reports" on public.content_reports for update using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin manage moderation actions" on public.moderation_actions
+drop policy if exists "Admin manage moderation actions" on public.moderation_actions;
+create policy "Admin manage moderation actions" on public.moderation_actions
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Public read ads" on public.ad_campaigns for select using (is_active = true and is_paused = false);
-create policy if not exists "Admin manage ads" on public.ad_campaigns
+drop policy if exists "Public read ads" on public.ad_campaigns;
+create policy "Public read ads" on public.ad_campaigns for select using (is_active = true and is_paused = false);
+drop policy if exists "Admin manage ads" on public.ad_campaigns;
+create policy "Admin manage ads" on public.ad_campaigns
   for all using (public.is_admin_user(auth.uid())) with check (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Public insert ad events" on public.ad_events
+drop policy if exists "Public insert ad events" on public.ad_events;
+create policy "Public insert ad events" on public.ad_events
   for insert with check (true);
-create policy if not exists "Admin read ad events" on public.ad_events
+drop policy if exists "Admin read ad events" on public.ad_events;
+create policy "Admin read ad events" on public.ad_events
   for select using (public.is_admin_user(auth.uid()));
 
-create policy if not exists "Admin read traffic" on public.traffic_events
+drop policy if exists "Admin read traffic" on public.traffic_events;
+create policy "Admin read traffic" on public.traffic_events
   for select using (public.is_admin_user(auth.uid()));
-create policy if not exists "Auth insert traffic" on public.traffic_events
+drop policy if exists "Auth insert traffic" on public.traffic_events;
+create policy "Auth insert traffic" on public.traffic_events
   for insert with check (auth.uid() = user_id or user_id is null);
 
 -- 10) Admin RPC functions
