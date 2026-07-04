@@ -1,0 +1,110 @@
+-- profiles
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  username text unique not null,
+  avatar_id text default 'av1',
+  bio text default '',
+  gender text,
+  state text,
+  country text default 'Nigeria',
+  interests text[] default '{}',
+  level text default 'Newbie',
+  xp integer default 0,
+  coins integer default 100,
+  is_online boolean default false,
+  last_seen timestamptz default now(),
+  created_at timestamptz default now()
+);
+alter table public.profiles enable row level security;
+create policy "Public profiles readable" on public.profiles for select using (true);
+create policy "Users update own profile" on public.profiles for update using (auth.uid() = id);
+create policy "Users insert own profile" on public.profiles for insert with check (auth.uid() = id);
+
+-- Trigger to create profile on sign up
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, username)
+  values (new.id, coalesce(new.raw_user_meta_data->>'username', 'user_' || substr(new.id::text, 1, 8)));
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- chat_rooms
+create table public.chat_rooms (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  category text,
+  emoji_icon text,
+  member_count integer default 0,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+alter table public.chat_rooms enable row level security;
+create policy "Rooms public read" on public.chat_rooms for select using (true);
+
+-- room_messages
+create table public.room_messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid references public.chat_rooms(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  content text not null,
+  type text default 'text',
+  created_at timestamptz default now()
+);
+alter table public.room_messages enable row level security;
+create policy "Messages readable" on public.room_messages for select using (true);
+create policy "Auth users can post" on public.room_messages for insert with check (auth.uid() = user_id);
+
+-- Enable realtime for room_messages
+alter publication supabase_realtime add table public.room_messages;
+
+-- posts (feed)
+create table public.posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  type text default 'text',
+  content text not null,
+  image_url text,
+  likes_count integer default 0,
+  comments_count integer default 0,
+  is_anonymous boolean default false,
+  created_at timestamptz default now()
+);
+alter table public.posts enable row level security;
+create policy "Posts public read" on public.posts for select using (true);
+create policy "Auth users create posts" on public.posts for insert with check (auth.uid() = user_id);
+create policy "Users update own posts" on public.posts for update using (auth.uid() = user_id);
+
+-- friendships
+create table public.friendships (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid references public.profiles(id) on delete cascade,
+  addressee_id uuid references public.profiles(id) on delete cascade,
+  status text default 'pending',
+  created_at timestamptz default now(),
+  unique(requester_id, addressee_id)
+);
+alter table public.friendships enable row level security;
+create policy "Own friendships" on public.friendships for select using (auth.uid() = requester_id or auth.uid() = addressee_id);
+create policy "Create requests" on public.friendships for insert with check (auth.uid() = requester_id);
+create policy "Update status" on public.friendships for update using (auth.uid() = addressee_id);
+
+-- notifications
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  type text not null,
+  title text,
+  body text,
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+alter table public.notifications enable row level security;
+create policy "Own notifs" on public.notifications for select using (auth.uid() = user_id);
+create policy "Mark read" on public.notifications for update using (auth.uid() = user_id);

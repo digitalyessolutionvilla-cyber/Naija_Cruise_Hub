@@ -1,0 +1,335 @@
+-- ────────────────────────────────────────────────
+-- 1. Profile additions
+-- ────────────────────────────────────────────────
+alter table public.profiles
+  add column if not exists login_streak integer default 0,
+  add column if not exists longest_streak integer default 0,
+  add column if not exists mute_notifications boolean default false,
+  add column if not exists stealth_mode boolean default false,
+  add column if not exists posts_count integer default 0,
+  add column if not exists friends_count integer default 0;
+
+-- ────────────────────────────────────────────────
+-- 2. Post likes (unique per user per post)
+-- ────────────────────────────────────────────────
+create table if not exists public.post_likes (
+  post_id uuid not null references public.posts(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (post_id, user_id)
+);
+alter table public.post_likes enable row level security;
+create policy "Anyone can read likes" on public.post_likes for select using (true);
+create policy "Auth users like" on public.post_likes for insert with check (auth.uid() = user_id);
+create policy "Own unlike" on public.post_likes for delete using (auth.uid() = user_id);
+
+-- Trigger: update posts.likes_count automatically
+create or replace function public.update_likes_count()
+returns trigger language plpgsql as $$
+begin
+  if TG_OP = 'INSERT' then
+    update public.posts set likes_count = likes_count + 1 where id = NEW.post_id;
+  elsif TG_OP = 'DELETE' then
+    update public.posts set likes_count = greatest(0, likes_count - 1) where id = OLD.post_id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists trg_likes_count on public.post_likes;
+create trigger trg_likes_count
+  after insert or delete on public.post_likes
+  for each row execute function public.update_likes_count();
+
+-- ────────────────────────────────────────────────
+-- 3. Post comments
+-- ────────────────────────────────────────────────
+create table if not exists public.post_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  content text not null,
+  created_at timestamptz default now()
+);
+alter table public.post_comments enable row level security;
+create policy "Anyone reads comments" on public.post_comments for select using (true);
+create policy "Auth users comment" on public.post_comments for insert with check (auth.uid() = user_id);
+create policy "Own delete comment" on public.post_comments for delete using (auth.uid() = user_id);
+
+-- Trigger: update posts.comments_count
+create or replace function public.update_comments_count()
+returns trigger language plpgsql as $$
+begin
+  if TG_OP = 'INSERT' then
+    update public.posts set comments_count = comments_count + 1 where id = NEW.post_id;
+  elsif TG_OP = 'DELETE' then
+    update public.posts set comments_count = greatest(0, comments_count - 1) where id = OLD.post_id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists trg_comments_count on public.post_comments;
+create trigger trg_comments_count
+  after insert or delete on public.post_comments
+  for each row execute function public.update_comments_count();
+
+-- Trigger: update profiles.posts_count
+create or replace function public.update_posts_count()
+returns trigger language plpgsql as $$
+begin
+  if TG_OP = 'INSERT' then
+    update public.profiles set posts_count = posts_count + 1 where id = NEW.user_id;
+  elsif TG_OP = 'DELETE' then
+    update public.profiles set posts_count = greatest(0, posts_count - 1) where id = OLD.user_id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists trg_posts_count on public.posts;
+create trigger trg_posts_count
+  after insert or delete on public.posts
+  for each row execute function public.update_posts_count();
+
+-- ────────────────────────────────────────────────
+-- 4. Private messages
+-- ────────────────────────────────────────────────
+create table if not exists public.private_messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  receiver_id uuid not null references public.profiles(id) on delete cascade,
+  content text not null,
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+alter table public.private_messages enable row level security;
+create policy "Own messages" on public.private_messages for select
+  using (auth.uid() = sender_id or auth.uid() = receiver_id);
+create policy "Send message" on public.private_messages for insert
+  with check (auth.uid() = sender_id);
+create policy "Mark read" on public.private_messages for update
+  using (auth.uid() = receiver_id);
+
+-- ────────────────────────────────────────────────
+-- 5. XP transactions log
+-- ────────────────────────────────────────────────
+create table if not exists public.xp_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  amount integer not null,
+  reason text not null,
+  created_at timestamptz default now()
+);
+alter table public.xp_transactions enable row level security;
+create policy "Own xp log" on public.xp_transactions for select using (auth.uid() = user_id);
+create policy "System insert xp" on public.xp_transactions for insert with check (auth.uid() = user_id);
+
+-- ────────────────────────────────────────────────
+-- 6. Daily logins
+-- ────────────────────────────────────────────────
+create table if not exists public.daily_logins (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  login_date date not null default current_date,
+  primary key (user_id, login_date)
+);
+alter table public.daily_logins enable row level security;
+create policy "Own logins" on public.daily_logins for select using (auth.uid() = user_id);
+create policy "Insert login" on public.daily_logins for insert with check (auth.uid() = user_id);
+
+-- ────────────────────────────────────────────────
+-- 7. Helper: compute level name from XP
+-- ────────────────────────────────────────────────
+create or replace function public.xp_to_level(p_xp integer)
+returns text language sql immutable as $$
+  select case
+    when p_xp >= 150000 then 'Cruise King'
+    when p_xp >= 75000  then 'Celebrity'
+    when p_xp >= 35000  then 'Legend'
+    when p_xp >= 15000  then 'Influencer'
+    when p_xp >= 5000   then 'Social Star'
+    when p_xp >= 2000   then 'Explorer'
+    when p_xp >= 500    then 'Cruiser'
+    else 'Newbie'
+  end;
+$$;
+
+-- ────────────────────────────────────────────────
+-- 8. award_xp function (security definer)
+-- ────────────────────────────────────────────────
+create or replace function public.award_xp(
+  p_user_id uuid,
+  p_amount integer,
+  p_reason text
+) returns jsonb
+language plpgsql security definer as $$
+declare
+  v_old_xp integer;
+  v_new_xp integer;
+  v_old_level text;
+  v_new_level text;
+  v_coins_bonus integer := 0;
+begin
+  -- Security check: only self
+  if p_user_id != auth.uid() then
+    raise exception 'Unauthorized';
+  end if;
+
+  select xp, level into v_old_xp, v_old_level
+  from public.profiles where id = p_user_id;
+
+  v_new_xp := v_old_xp + p_amount;
+  v_new_level := public.xp_to_level(v_new_xp);
+
+  -- Level-up bonus coins
+  if v_new_level != v_old_level then
+    v_coins_bonus := 100;
+    insert into public.notifications(user_id, type, title, body)
+    values (p_user_id, 'system', 'Level Up!',
+      'Congrats! You reached ' || v_new_level || '! +100 Cruise Coins bonus.');
+  end if;
+
+  update public.profiles set
+    xp = v_new_xp,
+    level = v_new_level,
+    coins = coins + v_coins_bonus
+  where id = p_user_id;
+
+  insert into public.xp_transactions(user_id, amount, reason)
+  values (p_user_id, p_amount, p_reason);
+
+  return jsonb_build_object(
+    'new_xp', v_new_xp,
+    'new_level', v_new_level,
+    'leveled_up', v_new_level != v_old_level,
+    'coins_bonus', v_coins_bonus
+  );
+end;
+$$;
+
+-- ────────────────────────────────────────────────
+-- 9. claim_daily_login (idempotent, security definer)
+-- ────────────────────────────────────────────────
+create or replace function public.claim_daily_login(p_user_id uuid)
+returns jsonb
+language plpgsql security definer as $$
+declare
+  v_inserted boolean;
+  v_yesterday date := current_date - 1;
+  v_streak integer;
+  v_longest integer;
+  v_xp_reward integer := 25;
+  v_coin_reward integer := 10;
+begin
+  if p_user_id != auth.uid() then
+    raise exception 'Unauthorized';
+  end if;
+
+  -- Try inserting today's login (will fail silently if already done)
+  begin
+    insert into public.daily_logins(user_id, login_date) values (p_user_id, current_date);
+    v_inserted := true;
+  exception when unique_violation then
+    v_inserted := false;
+  end;
+
+  if not v_inserted then
+    return jsonb_build_object('already_claimed', true);
+  end if;
+
+  -- Update streak
+  select login_streak, longest_streak into v_streak, v_longest
+  from public.profiles where id = p_user_id;
+
+  -- Check if yesterday was logged in to continue streak
+  if exists(select 1 from public.daily_logins where user_id = p_user_id and login_date = v_yesterday) then
+    v_streak := v_streak + 1;
+  else
+    v_streak := 1;
+  end if;
+
+  if v_streak > 3 then v_xp_reward := 50; end if;
+  if v_streak > 7 then v_xp_reward := 100; v_coin_reward := 25; end if;
+
+  if v_streak > v_longest then v_longest := v_streak; end if;
+
+  update public.profiles set
+    login_streak = v_streak,
+    longest_streak = v_longest,
+    xp = xp + v_xp_reward,
+    level = public.xp_to_level(xp + v_xp_reward),
+    coins = coins + v_coin_reward
+  where id = p_user_id;
+
+  insert into public.xp_transactions(user_id, amount, reason)
+  values (p_user_id, v_xp_reward, 'daily_login');
+
+  insert into public.notifications(user_id, type, title, body)
+  values (p_user_id, 'system', 'Daily Reward!',
+    'You earned ' || v_xp_reward || ' XP and ' || v_coin_reward ||
+    ' Coins for logging in today! Streak: ' || v_streak || ' days');
+
+  return jsonb_build_object(
+    'claimed', true,
+    'xp', v_xp_reward,
+    'coins', v_coin_reward,
+    'streak', v_streak
+  );
+end;
+$$;
+
+-- ────────────────────────────────────────────────
+-- 10. get_conversations (security definer)
+-- ────────────────────────────────────────────────
+create or replace function public.get_conversations(p_user_id uuid)
+returns table(
+  partner_id uuid,
+  last_message text,
+  last_time timestamptz,
+  unread_count bigint
+)
+language sql security definer as $$
+  select
+    case when pm.sender_id = p_user_id then pm.receiver_id else pm.sender_id end as partner_id,
+    (array_agg(pm.content order by pm.created_at desc))[1] as last_message,
+    max(pm.created_at) as last_time,
+    count(case when pm.receiver_id = p_user_id and not pm.is_read then 1 end) as unread_count
+  from public.private_messages pm
+  where pm.sender_id = p_user_id or pm.receiver_id = p_user_id
+  group by
+    case when pm.sender_id = p_user_id then pm.receiver_id else pm.sender_id end
+  order by last_time desc;
+$$;
+
+-- ────────────────────────────────────────────────
+-- 11. Realtime enablement
+-- ────────────────────────────────────────────────
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.private_messages;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.notifications;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.post_likes;
+  exception when others then null; end;
+end
+$$;
+
+-- ────────────────────────────────────────────────
+-- 12. Update handle_new_user trigger to set level
+-- ────────────────────────────────────────────────
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, username, level, xp, coins)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', 'user_' || substr(new.id::text, 1, 8)),
+    'Newbie',
+    0,
+    100
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$ language plpgsql security definer;

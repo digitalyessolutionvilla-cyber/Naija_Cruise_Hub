@@ -1,0 +1,293 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Mode */
+    --background: 250 15% 96%;
+    --foreground: 240 10% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 8%;
+    --primary: 270 91% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 10% 90%;
+    --secondary-foreground: 240 10% 20%;
+    --muted: 240 8% 90%;
+    --muted-foreground: 240 5% 50%;
+    --accent: 300 80% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 8% 85%;
+    --input: 240 8% 88%;
+    --ring: 270 91% 55%;
+    --radius: 0.75rem;
+
+    /* CruiseHub Brand Tokens - Light */
+    --neon-purple: 270 91% 55%;
+    --neon-pink: 330 100% 65%;
+    --neon-green: 142 76% 45%;
+    --neon-blue: 210 100% 60%;
+    --neon-gold: 45 100% 55%;
+
+    --glass-bg: 255 255 255 / 0.7;
+    --glass-border: 255 255 255 / 0.8;
+
+    --gradient-hero: linear-gradient(135deg, hsl(270 91% 20%), hsl(300 80% 25%), hsl(240 20% 8%));
+    --gradient-primary: linear-gradient(135deg, hsl(270 91% 55%), hsl(330 100% 65%));
+    --gradient-card: linear-gradient(135deg, hsl(270 91% 55% / 0.08), hsl(330 100% 65% / 0.05));
+    --gradient-subtle: linear-gradient(180deg, hsl(250 15% 96%), hsl(250 12% 92%));
+
+    --shadow-glow-purple: 0 0 30px hsl(270 91% 55% / 0.25);
+    --shadow-glow-pink: 0 0 30px hsl(330 100% 65% / 0.25);
+    --shadow-elegant: 0 10px 40px -10px hsl(240 10% 8% / 0.12);
+    --shadow-card: 0 4px 20px hsl(240 10% 8% / 0.08);
+
+    --sidebar-background: 250 15% 98%;
+    --sidebar-foreground: 240 10% 20%;
+    --sidebar-primary: 270 91% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 250 15% 93%;
+    --sidebar-accent-foreground: 240 10% 20%;
+    --sidebar-border: 240 8% 88%;
+    --sidebar-ring: 270 91% 55%;
+  }
+
+  .dark {
+    /* Dark Mode - CruiseHub Default */
+    --background: 240 12% 5%;
+    --foreground: 0 0% 94%;
+    --card: 240 10% 9%;
+    --card-foreground: 0 0% 94%;
+    --popover: 240 10% 9%;
+    --popover-foreground: 0 0% 94%;
+    --primary: 270 91% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 8% 15%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 240 8% 13%;
+    --muted-foreground: 240 5% 55%;
+    --accent: 300 80% 65%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 8% 16%;
+    --input: 240 8% 14%;
+    --ring: 270 91% 65%;
+
+    /* CruiseHub Brand Tokens - Dark */
+    --neon-purple: 270 91% 65%;
+    --neon-pink: 330 100% 71%;
+    --neon-green: 142 76% 55%;
+    --neon-blue: 210 100% 65%;
+    --neon-gold: 45 100% 60%;
+
+    --gradient-hero: linear-gradient(135deg, hsl(270 91% 12%), hsl(300 80% 10%), hsl(240 12% 5%));
+    --gradient-primary: linear-gradient(135deg, hsl(270 91% 65%), hsl(330 100% 71%));
+    --gradient-card: linear-gradient(135deg, hsl(270 91% 65% / 0.12), hsl(330 100% 71% / 0.06));
+    --gradient-subtle: linear-gradient(180deg, hsl(240 12% 7%), hsl(240 12% 5%));
+
+    --shadow-glow-purple: 0 0 40px hsl(270 91% 65% / 0.35);
+    --shadow-glow-pink: 0 0 40px hsl(330 100% 71% / 0.35);
+    --shadow-elegant: 0 10px 40px -10px hsl(0 0% 0% / 0.4);
+    --shadow-card: 0 4px 20px hsl(0 0% 0% / 0.25);
+
+    --sidebar-background: 240 12% 7%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 270 91% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 8% 13%;
+    --sidebar-accent-foreground: 0 0% 85%;
+    --sidebar-border: 240 8% 14%;
+    --sidebar-ring: 270 91% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: hsl(var(--neon-purple) / 0.4);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--neon-purple) / 0.7);
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism */
+  .glass {
+    background: hsl(var(--card) / 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .glass-strong {
+    background: hsl(var(--card) / 0.85);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid hsl(var(--border) / 0.6);
+  }
+
+  .glass-subtle {
+    background: hsl(var(--card) / 0.3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid hsl(var(--border) / 0.3);
+  }
+
+  /* Neon Glows */
+  .glow-purple {
+    box-shadow: var(--shadow-glow-purple);
+  }
+
+  .glow-pink {
+    box-shadow: var(--shadow-glow-pink);
+  }
+
+  .glow-text-purple {
+    text-shadow: 0 0 20px hsl(var(--neon-purple) / 0.8);
+  }
+
+  .glow-text-pink {
+    text-shadow: 0 0 20px hsl(var(--neon-pink) / 0.8);
+  }
+
+  /* Gradients */
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Animated border */
+  .neon-border {
+    border: 1px solid transparent;
+    background: linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
+                var(--gradient-primary) border-box;
+  }
+
+  /* Online indicator */
+  .online-ring {
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--neon-green));
+  }
+
+  /* Elevated card */
+  .card-elevated {
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+  }
+
+  .card-elevated:hover {
+    box-shadow: var(--shadow-glow-purple);
+    transform: translateY(-2px);
+  }
+
+  /* Smooth transitions */
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Page container */
+  .page-container {
+    @apply max-w-2xl mx-auto w-full px-4;
+  }
+
+  /* Mesh gradient background */
+  .bg-mesh {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse at 20% 20%, hsl(var(--neon-purple) / 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, hsl(var(--neon-pink) / 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, hsl(var(--neon-blue) / 0.05) 0%, transparent 70%);
+  }
+}
+
+/* Animated background for landing */
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 20px hsl(270 91% 65% / 0.4); }
+  50% { box-shadow: 0 0 40px hsl(270 91% 65% / 0.8), 0 0 60px hsl(330 100% 71% / 0.4); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes orb {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -30px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.animate-float { animation: float 4s ease-in-out infinite; }
+.animate-pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
+.animate-slide-up { animation: slideUp 0.5s ease-out forwards; }
+.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+.animate-orb { animation: orb 8s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 25%, hsl(var(--neon-purple) / 0.3) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+}
