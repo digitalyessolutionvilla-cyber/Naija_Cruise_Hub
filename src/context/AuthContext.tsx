@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Profile } from '@/types';
+import { isDefaultAdminCredential } from '@/lib/admin';
 
 interface AuthContextType {
   user: User | null;
@@ -84,7 +85,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    let { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    // Allow bootstrap of a default admin account if it does not exist yet.
+    if (error && isDefaultAdminCredential(email, password)) {
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username: 'CruiseHubAdmin' },
+          emailRedirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (signUpError && !/already|registered|exists/i.test(signUpError.message)) {
+        return { error: signUpError as Error | null };
+      }
+
+      const retry = await supabase.auth.signInWithPassword({ email, password });
+      error = retry.error;
+    }
+
     return { error: error as Error | null };
   };
 

@@ -8,6 +8,7 @@ import { UserProfilePage } from "./pages/UserProfilePage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { AdminPage } from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
 
 export const routers = [
@@ -21,6 +22,7 @@ export const routers = [
   { path: "/messages", name: "messages", element: <MessagesPage /> },
   { path: "/explore", name: "explore", element: <ExplorePage /> },
   { path: "/notifications", name: "notifications", element: <NotificationsPage /> },
+  { path: "/admin", name: "admin", element: <AdminPage /> },
   /* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */
   { path: "*", name: "404", element: <NotFound /> },
 ];

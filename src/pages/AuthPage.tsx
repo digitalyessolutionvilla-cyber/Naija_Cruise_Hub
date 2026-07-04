@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { AVATARS, INTERESTS, NIGERIAN_STATES } from '@/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ADMIN_DEFAULT_PASSWORD, ADMIN_EMAIL } from '@/lib/admin';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -64,7 +65,8 @@ export function AuthPage() {
     if (error) {
       toast.error('Sign in failed: ' + error.message);
     } else {
-      navigate('/home');
+      const next = searchParams.get('next');
+      navigate(next && next.startsWith('/') ? next : '/home');
     }
   };
 
@@ -184,6 +186,17 @@ export function AuthPage() {
                   <Button type="submit" className="w-full gradient-primary text-white border-0 shadow-glow-purple" disabled={loading}>
                     {loading ? 'Signing in...' : 'Sign In'}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      loginForm.setValue('email', ADMIN_EMAIL);
+                      loginForm.setValue('password', ADMIN_DEFAULT_PASSWORD);
+                    }}
+                  >
+                    Use Admin Login
+                  </Button>
                 </form>
               </motion.div>
             ) : (
@@ -195,8 +208,8 @@ export function AuthPage() {
                       <div className={cn(
                         'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-smooth',
                         i < step ? 'gradient-primary text-white' :
-                        i === step ? 'bg-primary/20 text-primary border border-primary' :
-                        'bg-muted text-muted-foreground'
+                          i === step ? 'bg-primary/20 text-primary border border-primary' :
+                            'bg-muted text-muted-foreground'
                       )}>
                         {i < step ? <Check className="w-3.5 h-3.5" /> : i + 1}
                       </div>
