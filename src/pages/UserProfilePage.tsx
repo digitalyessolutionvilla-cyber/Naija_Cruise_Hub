@@ -53,20 +53,20 @@ export function UserProfilePage() {
             .limit(20),
           user
             ? supabase
-                .from('friendships')
-                .select('id')
-                .or(`and(user_id.eq.${user.id},friend_id.eq.${userId}),and(user_id.eq.${userId},friend_id.eq.${user.id})`)
-                .eq('status', 'accepted')
-                .maybeSingle()
+              .from('friendships')
+              .select('id')
+              .or(`and(requester_id.eq.${user.id},addressee_id.eq.${userId}),and(requester_id.eq.${userId},addressee_id.eq.${user.id})`)
+              .eq('status', 'accepted')
+              .maybeSingle()
             : Promise.resolve({ data: null }),
           user
             ? supabase
-                .from('friendships')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('friend_id', userId)
-                .eq('status', 'pending')
-                .maybeSingle()
+              .from('friendships')
+              .select('id')
+              .eq('requester_id', user.id)
+              .eq('addressee_id', userId)
+              .eq('status', 'pending')
+              .maybeSingle()
             : Promise.resolve({ data: null }),
         ]);
 
@@ -85,7 +85,7 @@ export function UserProfilePage() {
     setFriendLoading(true);
     const { error } = await supabase
       .from('friendships')
-      .insert({ user_id: user.id, friend_id: userId, status: 'pending' });
+      .insert({ requester_id: user.id, addressee_id: userId, status: 'pending' });
     if (!error) {
       await supabase.from('notifications').insert({
         user_id: userId,
@@ -171,7 +171,7 @@ export function UserProfilePage() {
             {/* Action buttons */}
             {user && user.id !== userId && (
               <div className="flex gap-2 mb-1">
-                {isFriend && (
+                {(isFriend || friendRequested) && (
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={handleMessage}>
                     <MessageSquare className="w-4 h-4" /> Message
                   </Button>

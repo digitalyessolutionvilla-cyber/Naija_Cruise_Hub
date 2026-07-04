@@ -26,11 +26,21 @@ interface PostCardProps {
 
 const typeStyles: Record<string, { border: string; badge: string; label: string }> = {
   confession: { border: 'border-l-4 border-l-neon-pink', badge: 'bg-neon-pink/15 text-neon-pink border-neon-pink/20', label: 'Confession' },
-  poll:       { border: 'border-l-4 border-l-neon-blue', badge: 'bg-neon-blue/15 text-neon-blue border-neon-blue/20',   label: 'Poll' },
-  question:   { border: 'border-l-4 border-l-neon-gold', badge: 'bg-neon-gold/15 text-neon-gold border-neon-gold/20',   label: 'Question' },
-  meme:       { border: 'border-l-4 border-l-neon-green', badge: 'bg-neon-green/15 text-neon-green border-neon-green/20', label: 'Meme' },
-  text:       { border: '', badge: '', label: '' },
+  poll: { border: 'border-l-4 border-l-neon-blue', badge: 'bg-neon-blue/15 text-neon-blue border-neon-blue/20', label: 'Poll' },
+  question: { border: 'border-l-4 border-l-neon-gold', badge: 'bg-neon-gold/15 text-neon-gold border-neon-gold/20', label: 'Question' },
+  meme: { border: 'border-l-4 border-l-neon-green', badge: 'bg-neon-green/15 text-neon-green border-neon-green/20', label: 'Meme' },
+  story: { border: 'border-l-4 border-l-neon-blue', badge: 'bg-neon-blue/15 text-neon-blue border-neon-blue/20', label: 'Story' },
+  text: { border: '', badge: '', label: '' },
 };
+
+function isVideoUrl(url: string): boolean {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\.(mp4|webm|ogg|mov|m4v)$/.test(pathname);
+  } catch {
+    return /\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(url);
+  }
+}
 
 export function PostCard({ post, isLiked = false, className, onDeleted }: PostCardProps) {
   const { user } = useAuth();
@@ -141,6 +151,27 @@ export function PostCard({ post, isLiked = false, className, onDeleted }: PostCa
 
         {/* Content */}
         <p className="text-sm leading-relaxed">{post.content}</p>
+
+        {post.image_url && (
+          <div className="rounded-xl overflow-hidden border border-border bg-muted/20">
+            {isVideoUrl(post.image_url) ? (
+              <video
+                src={post.image_url}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full max-h-[420px] bg-black"
+              />
+            ) : (
+              <img
+                src={post.image_url}
+                alt="Post media"
+                loading="lazy"
+                className="w-full max-h-[420px] object-cover"
+              />
+            )}
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-1 pt-1">

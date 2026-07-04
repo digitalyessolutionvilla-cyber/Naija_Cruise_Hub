@@ -14,7 +14,15 @@ export function useXP() {
       receive_like: 3, add_comment: 8, join_room: 2,
       invite_friend: 50, win_game: 30,
     };
+    const COIN_MAP: Partial<Record<XPReason, number>> = {
+      create_post: 2,
+      add_comment: 1,
+      send_message: 1,
+      win_game: 10,
+      invite_friend: 20,
+    };
     const amount = XP_MAP[reason];
+    const coinReward = COIN_MAP[reason] ?? 0;
 
     const { data, error } = await supabase.rpc('award_xp', {
       p_user_id: user.id,
@@ -29,6 +37,45 @@ export function useXP() {
           duration: 5000,
         });
       }
+      if (coinReward > 0) {
+        const { data: p } = await supabase
+          .from('profiles')
+          .select('coins')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (p) {
+          await supabase
+            .from('profiles')
+            .update({ coins: (p.coins ?? 0) + coinReward })
+            .eq('id', user.id);
+        }
+      }
+      await refreshProfile();
+      return;
+    }
+
+    // Fallback path if RPC is unavailable or blocked by permissions.
+    const { data: p } = await supabase
+      .from('profiles')
+      .select('xp, coins')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (p) {
+      await supabase
+        .from('profiles')
+        .update({
+          xp: (p.xp ?? 0) + amount,
+          coins: (p.coins ?? 0) + coinReward,
+        })
+        .eq('id', user.id);
+
+      await supabase.from('xp_transactions').insert({
+        user_id: user.id,
+        amount,
+        reason,
+      });
+
       await refreshProfile();
     }
   }, [user, refreshProfile]);

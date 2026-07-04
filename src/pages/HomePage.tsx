@@ -25,10 +25,10 @@ interface StoryUser {
 }
 
 const TABS: { id: FeedTab; label: string; icon: typeof TrendingUp }[] = [
-  { id: 'foryou',   label: 'For You',  icon: Star },
+  { id: 'foryou', label: 'For You', icon: Star },
   { id: 'trending', label: 'Trending', icon: TrendingUp },
-  { id: 'recent',   label: 'Recent',   icon: Clock },
-  { id: 'memes',    label: 'Memes',    icon: Image },
+  { id: 'recent', label: 'Recent', icon: Clock },
+  { id: 'memes', label: 'Memes', icon: Image },
 ];
 
 const PAGE_SIZE = 10;
@@ -49,40 +49,40 @@ export function HomePage() {
   const [newPostsAvailable, setNewPostsAvailable] = useState(false);
   const loaderRef = useRef<HTMLDivElement>(null);
 
-  // Map tab → usePosts tab param
-  const getPostsTab = (tab: FeedTab) => {
-    if (tab === 'memes') return 'memes' as const;
-    if (tab === 'trending') return 'trending' as const;
-    return 'recent' as const;
-  };
-
   const loadPosts = useCallback(async (tab: FeedTab, pageNum = 0, append = false) => {
     if (pageNum === 0) setLoadingPosts(true);
     else setLoadingMore(true);
 
-    const postsTab = getPostsTab(tab);
     let query = supabase
       .from('posts')
-      .select('*, profile:profiles(username, avatar_id, level)')
+      .select('*')
       .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
 
     if (tab === 'memes') {
-      query = query.eq('type', 'meme');
+      query = query.in('type', ['meme', 'story']);
     } else if (tab === 'trending') {
-      query = query.order('likes_count', { ascending: false });
+      query = query
+        .order('likes_count', { ascending: false })
+        .order('comments_count', { ascending: false })
+        .order('created_at', { ascending: false, nullsFirst: false });
     } else if (tab === 'foryou') {
-      // For You: combination of likes + recency (recent 48h, sorted by engagement)
-      const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      query = query.gte('created_at', since).order('likes_count', { ascending: false });
+      // For You: all posts, newest first for maximum visibility.
+      query = query
+        .order('created_at', { ascending: false, nullsFirst: false });
     } else {
-      query = query.order('created_at', { ascending: false });
+      query = query.order('created_at', { ascending: false, nullsFirst: false });
     }
 
     if (tab !== 'foryou' && tab !== 'trending') {
-      query = query.order('created_at', { ascending: false });
+      query = query.order('created_at', { ascending: false, nullsFirst: false });
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      setLoadingPosts(false);
+      setLoadingMore(false);
+      return;
+    }
     const fetched = (data ?? []) as Post[];
 
     if (append) {
@@ -97,8 +97,6 @@ export function HomePage() {
     setHasMore(fetched.length === PAGE_SIZE);
     setLoadingPosts(false);
     setLoadingMore(false);
-    // Suppress unused variable warning
-    void postsTab;
   }, []);
 
   // Reset on tab change
@@ -243,7 +241,7 @@ export function HomePage() {
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="hidden sm:inline">{tab.id === 'memes' ? 'Memes/Story' : tab.label}</span>
                 </button>
               );
             })}
@@ -289,7 +287,7 @@ export function HomePage() {
               <div ref={loaderRef} className="h-10 flex items-center justify-center">
                 {loadingMore && (
                   <div className="flex gap-2">
-                    {[0,1,2].map(i => (
+                    {[0, 1, 2].map(i => (
                       <div key={i} className="w-2 h-2 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
                     ))}
                   </div>
@@ -355,7 +353,18 @@ export function HomePage() {
       <CreatePostModal
         open={showCreatePost}
         onClose={() => setShowCreatePost(false)}
-        onCreated={() => { setPage(0); loadPosts(activeTab, 0, false); }}
+        onCreated={(newPost) => {
+          setNewPostsAvailable(false);
+          setPage(0);
+          setActiveTab('foryou');
+          if (newPost) {
+            setPosts(prev => {
+              const withoutDup = prev.filter(p => p.id !== newPost.id);
+              return [newPost, ...withoutDup];
+            });
+          }
+          loadPosts('foryou', 0, false);
+        }}
       />
     </AppLayout>
   );

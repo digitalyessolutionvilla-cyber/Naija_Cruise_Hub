@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MessageSquare, Search, ChevronLeft, Send } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useMessages } from '@/hooks/useMessages';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import type { Conversation } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 function ConversationList({ conversations, loading, onSelect }: {
   conversations: Conversation[];
@@ -37,7 +39,7 @@ function ConversationList({ conversations, loading, onSelect }: {
 
       {loading ? (
         <div className="space-y-2">
-          {[1,2,3].map(i => <div key={i} className="glass rounded-2xl h-16 animate-shimmer" />)}
+          {[1, 2, 3].map(i => <div key={i} className="glass rounded-2xl h-16 animate-shimmer" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 space-y-3">
@@ -88,9 +90,23 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
   onBack: () => void;
 }) {
   const { user } = useAuth();
-  const { messages, sendMessage } = useMessages(partnerId);
+  const { messages, sendMessage, messagePermission } = useMessages(partnerId);
   const [value, setValue] = useState('');
   const endRef = useState<HTMLDivElement | null>(null);
+
+  const statusText = messagePermission.kind === 'friends'
+    ? 'Friends • messaging unlocked'
+    : messagePermission.kind === 'pending'
+      ? `Pending request • ${messagePermission.remainingIntroMessages ?? 1} intro message left`
+      : messagePermission.kind === 'pending_limit_reached'
+        ? 'Pending request • waiting for acceptance'
+        : 'Send friend request to chat';
+
+  const statusClass = messagePermission.kind === 'friends'
+    ? 'text-neon-green'
+    : messagePermission.kind === 'pending'
+      ? 'text-neon-gold'
+      : 'text-muted-foreground';
 
   useEffect(() => {
     endRef[0]?.scrollIntoView({ behavior: 'smooth' });
@@ -98,7 +114,11 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
 
   const handleSend = async () => {
     if (!value.trim()) return;
-    await sendMessage(partnerId, value.trim());
+    const { error } = await sendMessage(partnerId, value.trim());
+    if (error) {
+      toast.error(error.message || 'Unable to send message');
+      return;
+    }
     setValue('');
   };
 
@@ -111,8 +131,8 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
         <AvatarDisplay avatarId={partnerProfile?.avatar_id || 'av1'} size="sm" isOnline={partnerProfile?.is_online} />
         <div>
           <p className="font-semibold text-sm">@{partnerProfile?.username || 'user'}</p>
-          <p className="text-xs text-muted-foreground">
-            {partnerProfile?.is_online ? 'Online' : 'Offline'}
+          <p className={cn('text-xs', statusClass)}>
+            {statusText}
           </p>
         </div>
       </div>
@@ -150,7 +170,7 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
           size="icon"
           className="gradient-primary text-white border-0"
           onClick={handleSend}
-          disabled={!value.trim()}
+          disabled={!value.trim() || !messagePermission.canSend}
         >
           <Send className="w-4 h-4" />
         </Button>
@@ -162,8 +182,38 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
 export function MessagesPage() {
   const { conversations, loading, fetchConversations } = useMessages();
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  useEffect(() => {
+    const partnerId = searchParams.get('with');
+    if (!partnerId || activeConv) return;
+
+    const existing = conversations.find(c => c.partner_id === partnerId);
+    if (existing) {
+      setActiveConv(existing);
+      return;
+    }
+
+    const openDirectChat = async () => {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_id, level, is_online')
+        .eq('id', partnerId)
+        .maybeSingle();
+
+      setActiveConv({
+        partner_id: partnerId,
+        last_message: '',
+        last_time: new Date().toISOString(),
+        unread_count: 0,
+        profile: profile || undefined,
+      });
+    };
+
+    void openDirectChat();
+  }, [searchParams, conversations, activeConv]);
 
   return (
     <AppLayout>

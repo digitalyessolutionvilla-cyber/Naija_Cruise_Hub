@@ -5,7 +5,7 @@ import { useXP } from '@/hooks/useXP';
 import type { Post, PostType } from '@/types';
 
 export function usePosts() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const { awardXP } = useXP();
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
@@ -55,17 +55,23 @@ export function usePosts() {
     content: string;
     type: PostType;
     is_anonymous: boolean;
+    image_url?: string | null;
   }) => {
     if (!user) return { error: new Error('Not authenticated') };
-    const { error } = await supabase.from('posts').insert({
-      ...data,
-      user_id: user.id,
-    });
+    const { data: created, error } = await supabase
+      .from('posts')
+      .insert({
+        ...data,
+        user_id: user.id,
+      })
+      .select('*')
+      .single();
     if (!error) {
       await awardXP('create_post');
+      await refreshProfile();
     }
-    return { error };
-  }, [user, awardXP]);
+    return { error, post: (created ?? null) as Post | null };
+  }, [user, awardXP, refreshProfile]);
 
   return { fetchPosts, fetchLikedIds, likedIds, likePost, createPost };
 }

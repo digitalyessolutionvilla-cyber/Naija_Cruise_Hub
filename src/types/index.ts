@@ -8,7 +8,7 @@ export type UserLevel =
   | 'Celebrity'
   | 'Cruise King';
 
-export type PostType = 'text' | 'confession' | 'poll' | 'meme' | 'question';
+export type PostType = 'text' | 'confession' | 'poll' | 'meme' | 'story' | 'question';
 export type FriendshipStatus = 'pending' | 'accepted' | 'blocked';
 export type NotificationType = 'message' | 'friend_request' | 'like' | 'comment' | 'system';
 
@@ -117,14 +117,14 @@ export interface Notification {
 
 // ── Level System ──────────────────────────────────────────
 export const LEVELS: { name: UserLevel; minXP: number; color: string; badge: string }[] = [
-  { name: 'Newbie',     minXP: 0,      color: 'text-muted-foreground', badge: 'bg-muted/60' },
-  { name: 'Cruiser',    minXP: 500,    color: 'text-blue-400',          badge: 'bg-blue-500/15' },
-  { name: 'Explorer',   minXP: 2000,   color: 'text-green-400',         badge: 'bg-green-500/15' },
-  { name: 'Social Star',minXP: 5000,   color: 'text-cyan-400',          badge: 'bg-cyan-500/15' },
-  { name: 'Influencer', minXP: 15000,  color: 'text-yellow-400',        badge: 'bg-yellow-500/15' },
-  { name: 'Legend',     minXP: 35000,  color: 'text-orange-400',        badge: 'bg-orange-500/15' },
-  { name: 'Celebrity',  minXP: 75000,  color: 'text-neon-pink',         badge: 'bg-pink-500/15' },
-  { name: 'Cruise King',minXP: 150000, color: 'text-neon-gold',         badge: 'bg-amber-500/15' },
+  { name: 'Newbie', minXP: 0, color: 'text-muted-foreground', badge: 'bg-muted/60' },
+  { name: 'Cruiser', minXP: 500, color: 'text-blue-400', badge: 'bg-blue-500/15' },
+  { name: 'Explorer', minXP: 2000, color: 'text-green-400', badge: 'bg-green-500/15' },
+  { name: 'Social Star', minXP: 5000, color: 'text-cyan-400', badge: 'bg-cyan-500/15' },
+  { name: 'Influencer', minXP: 15000, color: 'text-yellow-400', badge: 'bg-yellow-500/15' },
+  { name: 'Legend', minXP: 35000, color: 'text-orange-400', badge: 'bg-orange-500/15' },
+  { name: 'Celebrity', minXP: 75000, color: 'text-neon-pink', badge: 'bg-pink-500/15' },
+  { name: 'Cruise King', minXP: 150000, color: 'text-neon-gold', badge: 'bg-amber-500/15' },
 ];
 
 export function getLevelFromXP(xp: number): UserLevel {
@@ -146,30 +146,30 @@ export function getNextLevelXP(xp: number): number {
 }
 
 export const XP_REWARDS: Record<XPReason, number> = {
-  daily_login:   25,
-  send_message:  5,
-  create_post:   10,
-  receive_like:  3,
-  add_comment:   8,
-  join_room:     2,
+  daily_login: 25,
+  send_message: 5,
+  create_post: 10,
+  receive_like: 3,
+  add_comment: 8,
+  join_room: 2,
   invite_friend: 50,
-  win_game:      30,
+  win_game: 30,
 };
 
 // ── Avatars ───────────────────────────────────────────────
 export const AVATARS = [
-  { id: 'av1',  gradient: 'from-purple-500 to-pink-500',   emoji: '😎' },
-  { id: 'av2',  gradient: 'from-blue-500 to-cyan-500',     emoji: '🤩' },
-  { id: 'av3',  gradient: 'from-green-500 to-emerald-500', emoji: '😄' },
-  { id: 'av4',  gradient: 'from-orange-500 to-red-500',    emoji: '🔥' },
-  { id: 'av5',  gradient: 'from-pink-500 to-rose-500',     emoji: '💖' },
-  { id: 'av6',  gradient: 'from-indigo-500 to-purple-500', emoji: '👑' },
-  { id: 'av7',  gradient: 'from-yellow-500 to-orange-500', emoji: '⚡' },
-  { id: 'av8',  gradient: 'from-teal-500 to-green-500',    emoji: '🎯' },
-  { id: 'av9',  gradient: 'from-red-500 to-pink-500',      emoji: '🎭' },
-  { id: 'av10', gradient: 'from-cyan-500 to-blue-500',     emoji: '🚀' },
+  { id: 'av1', gradient: 'from-purple-500 to-pink-500', emoji: '😎' },
+  { id: 'av2', gradient: 'from-blue-500 to-cyan-500', emoji: '🤩' },
+  { id: 'av3', gradient: 'from-green-500 to-emerald-500', emoji: '😄' },
+  { id: 'av4', gradient: 'from-orange-500 to-red-500', emoji: '🔥' },
+  { id: 'av5', gradient: 'from-pink-500 to-rose-500', emoji: '💖' },
+  { id: 'av6', gradient: 'from-indigo-500 to-purple-500', emoji: '👑' },
+  { id: 'av7', gradient: 'from-yellow-500 to-orange-500', emoji: '⚡' },
+  { id: 'av8', gradient: 'from-teal-500 to-green-500', emoji: '🎯' },
+  { id: 'av9', gradient: 'from-red-500 to-pink-500', emoji: '🎭' },
+  { id: 'av10', gradient: 'from-cyan-500 to-blue-500', emoji: '🚀' },
   { id: 'av11', gradient: 'from-violet-500 to-indigo-500', emoji: '💎' },
-  { id: 'av12', gradient: 'from-amber-500 to-yellow-500',  emoji: '🌟' },
+  { id: 'av12', gradient: 'from-amber-500 to-yellow-500', emoji: '🌟' },
 ];
 
 export const INTERESTS = [

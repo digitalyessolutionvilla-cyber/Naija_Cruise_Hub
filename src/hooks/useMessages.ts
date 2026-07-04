@@ -4,12 +4,65 @@ import { useAuth } from '@/context/AuthContext';
 import { useXP } from '@/hooks/useXP';
 import type { PrivateMessage, Conversation } from '@/types';
 
+type MessagePermissionState = {
+  kind: 'friends' | 'pending' | 'pending_limit_reached' | 'request_required';
+  canSend: boolean;
+  remainingIntroMessages: number | null;
+};
+
 export function useMessages(partnerId?: string) {
   const { user } = useAuth();
   const { awardXP } = useXP();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
+  const [messagePermission, setMessagePermission] = useState<MessagePermissionState>({
+    kind: 'friends',
+    canSend: true,
+    remainingIntroMessages: null,
+  });
   const [loading, setLoading] = useState(true);
+
+  const getMessagePermission = useCallback(async (receiverId: string): Promise<MessagePermissionState> => {
+    if (!user) {
+      return { kind: 'request_required', canSend: false, remainingIntroMessages: 0 };
+    }
+
+    const { data: acceptedFriendship } = await supabase
+      .from('friendships')
+      .select('id')
+      .or(`and(requester_id.eq.${user.id},addressee_id.eq.${receiverId}),and(requester_id.eq.${receiverId},addressee_id.eq.${user.id})`)
+      .eq('status', 'accepted')
+      .maybeSingle();
+
+    if (acceptedFriendship) {
+      return { kind: 'friends', canSend: true, remainingIntroMessages: null };
+    }
+
+    const { data: pendingRequest } = await supabase
+      .from('friendships')
+      .select('id')
+      .eq('requester_id', user.id)
+      .eq('addressee_id', receiverId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (!pendingRequest) {
+      return { kind: 'request_required', canSend: false, remainingIntroMessages: 0 };
+    }
+
+    const { count } = await supabase
+      .from('private_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_id', user.id)
+      .eq('receiver_id', receiverId);
+
+    const sentCount = count ?? 0;
+    if (sentCount >= 1) {
+      return { kind: 'pending_limit_reached', canSend: false, remainingIntroMessages: 0 };
+    }
+
+    return { kind: 'pending', canSend: true, remainingIntroMessages: 1 - sentCount };
+  }, [user]);
 
   const fetchConversations = useCallback(async () => {
     if (!user) return;
@@ -58,6 +111,7 @@ export function useMessages(partnerId?: string) {
   useEffect(() => {
     if (partnerId) {
       fetchMessages();
+      void getMessagePermission(partnerId).then(setMessagePermission);
       const channel = supabase
         .channel(`dm-${user?.id}-${partnerId}`)
         .on('postgres_changes', {
@@ -66,6 +120,7 @@ export function useMessages(partnerId?: string) {
         }, (payload) => {
           if (payload.new.sender_id === partnerId) {
             setMessages(prev => [...prev, payload.new as PrivateMessage]);
+            void getMessagePermission(partnerId).then(setMessagePermission);
           }
         })
         .subscribe();
@@ -73,10 +128,19 @@ export function useMessages(partnerId?: string) {
     } else {
       fetchConversations();
     }
-  }, [partnerId, fetchConversations, fetchMessages, user]);
+  }, [partnerId, fetchConversations, fetchMessages, getMessagePermission, user]);
 
   const sendMessage = useCallback(async (receiverId: string, content: string) => {
-    if (!user) return;
+    if (!user) return { error: new Error('Not authenticated') };
+    const permission = await getMessagePermission(receiverId);
+    setMessagePermission(permission);
+    if (!permission.canSend) {
+      if (permission.kind === 'request_required') {
+        return { error: new Error('Send a friend request first before messaging this user.') };
+      }
+      return { error: new Error('You can only send one message until your friend request is accepted.') };
+    }
+
     const { error } = await supabase.from('private_messages').insert({
       sender_id: user.id,
       receiver_id: receiverId,
@@ -101,8 +165,12 @@ export function useMessages(partnerId?: string) {
         title: 'New Message',
         body: content.slice(0, 80),
       });
+      const nextPermission = await getMessagePermission(receiverId);
+      setMessagePermission(nextPermission);
+      return { error: null };
     }
-  }, [user, awardXP]);
+    return { error: error as Error };
+  }, [user, awardXP, getMessagePermission]);
 
-  return { conversations, messages, loading, fetchConversations, sendMessage };
+  return { conversations, messages, messagePermission, loading, fetchConversations, sendMessage };
 }
