@@ -16,6 +16,14 @@ import { toast } from 'sonner';
 
 const CATEGORIES = ['All', 'General', 'City', 'Education', 'Social', 'Entertainment', 'Sports', 'Technology', 'Lifestyle', 'Business'];
 
+function getCreateRoomErrorMessage(error: { message?: string; code?: string } | null) {
+  const raw = `${error?.message ?? ''}`.toLowerCase();
+  if (raw.includes('row-level security policy') || raw.includes('violates row-level security')) {
+    return 'Room creation is temporarily unavailable because backend permissions are not synced yet. Please try again shortly.';
+  }
+  return error?.message ?? 'Unable to create room right now.';
+}
+
 export function ChatRoomsPage() {
   const { user } = useAuth();
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
@@ -75,7 +83,7 @@ export function ChatRoomsPage() {
     setCreatingRoom(false);
 
     if (error) {
-      toast.error(`Failed to create room: ${error.message}`);
+      toast.error(getCreateRoomErrorMessage(error));
       return;
     }
 
