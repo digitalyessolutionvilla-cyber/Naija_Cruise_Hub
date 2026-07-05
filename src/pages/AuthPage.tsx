@@ -39,7 +39,6 @@ interface RegData {
 }
 
 const STEPS = ['Account', 'Profile', 'Location', 'Avatar'];
-const SIGNUP_RATE_LIMIT_KEY = 'cruisehub_signup_retry_after';
 
 function getAuthErrorMessage(error: Error, action: 'signin' | 'signup') {
   const message = (error.message || '').toLowerCase();
@@ -114,26 +113,15 @@ export function AuthPage() {
   };
 
   const handleFinalSubmit = async () => {
-    const retryAtRaw = localStorage.getItem(SIGNUP_RATE_LIMIT_KEY);
-    const retryAt = retryAtRaw ? Number(retryAtRaw) : 0;
-    if (Number.isFinite(retryAt) && retryAt > Date.now()) {
-      const secondsLeft = Math.ceil((retryAt - Date.now()) / 1000);
-      toast.error(`Registration is temporarily rate-limited. Try again in about ${secondsLeft}s.`);
-      return;
-    }
-
     setLoading(true);
     const email = regData.email!;
     const password = regData.password!;
     const { error } = await signUp(email, password, regData.username!);
     if (error) {
       if (isRateLimitedError(error)) {
-        localStorage.setItem(SIGNUP_RATE_LIMIT_KEY, String(Date.now() + 65_000));
-
         // If account creation already happened previously, sign-in can still succeed.
         const signInAttempt = await signIn(email, password);
         if (!signInAttempt.error) {
-          localStorage.removeItem(SIGNUP_RATE_LIMIT_KEY);
           toast.success('Account already exists and you are now signed in.');
           navigate('/home');
           setLoading(false);
@@ -145,7 +133,6 @@ export function AuthPage() {
       setLoading(false);
       return;
     }
-    localStorage.removeItem(SIGNUP_RATE_LIMIT_KEY);
     // Update profile with additional data
     toast.success('Welcome to CruiseHub! 🎉');
     navigate('/home');
