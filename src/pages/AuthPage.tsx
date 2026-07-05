@@ -12,7 +12,6 @@ import { useAuth } from '@/context/AuthContext';
 import { AVATARS, INTERESTS, NIGERIAN_STATES } from '@/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { ADMIN_DEFAULT_PASSWORD, ADMIN_EMAIL } from '@/lib/admin';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -185,17 +184,6 @@ export function AuthPage() {
                   </div>
                   <Button type="submit" className="w-full gradient-primary text-white border-0 shadow-glow-purple" disabled={loading}>
                     {loading ? 'Signing in...' : 'Sign In'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => {
-                      loginForm.setValue('email', ADMIN_EMAIL);
-                      loginForm.setValue('password', ADMIN_DEFAULT_PASSWORD);
-                    }}
-                  >
-                    Use Admin Login
                   </Button>
                 </form>
               </motion.div>
