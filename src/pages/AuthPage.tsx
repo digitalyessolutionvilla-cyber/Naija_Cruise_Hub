@@ -40,6 +40,23 @@ interface RegData {
 
 const STEPS = ['Account', 'Profile', 'Location', 'Avatar'];
 
+function getAuthErrorMessage(error: Error, action: 'signin' | 'signup') {
+  const message = (error.message || '').toLowerCase();
+
+  if (message.includes('email not confirmed')) {
+    return 'Email not confirmed. Check your inbox/spam for the confirmation link, or ask admin to confirm your account in Supabase Auth Users.';
+  }
+
+  if (message.includes('rate limit') || message.includes('too many requests')) {
+    if (action === 'signup') {
+      return 'Registration is temporarily rate-limited. Wait about 60 seconds and try again. If you already signed up, try signing in instead.';
+    }
+    return 'Too many sign-in attempts. Wait about 60 seconds and try again.';
+  }
+
+  return error.message;
+}
+
 export function AuthPage() {
   const [searchParams] = useSearchParams();
   const [isLogin, setIsLogin] = useState(searchParams.get('mode') !== 'register');
@@ -62,7 +79,7 @@ export function AuthPage() {
     const { error } = await signIn(data.email, data.password);
     setLoading(false);
     if (error) {
-      toast.error('Sign in failed: ' + error.message);
+      toast.error('Sign in failed: ' + getAuthErrorMessage(error, 'signin'));
     } else {
       const next = searchParams.get('next');
       navigate(next && next.startsWith('/') ? next : '/home');
@@ -94,7 +111,7 @@ export function AuthPage() {
     setLoading(true);
     const { error } = await signUp(regData.email!, regData.password!, regData.username!);
     if (error) {
-      toast.error('Registration failed: ' + error.message);
+      toast.error('Registration failed: ' + getAuthErrorMessage(error, 'signup'));
       setLoading(false);
       return;
     }
