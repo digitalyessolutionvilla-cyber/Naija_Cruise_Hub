@@ -1,5 +1,7 @@
 import { Link2, Share2, MessageCircle, Users } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface ShareSheetProps {
@@ -7,6 +9,7 @@ interface ShareSheetProps {
   content: string;
   open: boolean;
   onClose: () => void;
+  onShared?: () => void;
 }
 
 const shareOptions = [
@@ -61,7 +64,17 @@ const shareOptions = [
   },
 ];
 
-export function ShareSheet({ postId, content, open, onClose }: ShareSheetProps) {
+export function ShareSheet({ postId, content, open, onClose, onShared }: ShareSheetProps) {
+  const { user } = useAuth();
+
+  const recordShare = async () => {
+    if (!user) return;
+    const { error } = await supabase.from('post_shares').insert({ post_id: postId, user_id: user.id });
+    if (!error) {
+      onShared?.();
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={v => !v && onClose()}>
       <SheetContent side="bottom" className="rounded-t-2xl pb-8">
@@ -79,7 +92,8 @@ export function ShareSheet({ postId, content, open, onClose }: ShareSheetProps) 
               <button
                 key={opt.label}
                 className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-muted/60 transition-colors text-left"
-                onClick={() => {
+                onClick={async () => {
+                  await recordShare();
                   opt.action(postId, content);
                   onClose();
                 }}

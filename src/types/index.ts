@@ -74,6 +74,7 @@ export interface Post {
   image_url: string | null;
   likes_count: number;
   comments_count: number;
+  shares_count?: number;
   is_anonymous: boolean;
   created_at: string;
   profile?: Partial<Profile>;

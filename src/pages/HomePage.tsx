@@ -135,18 +135,39 @@ export function HomePage() {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, loadingPosts, page, activeTab, loadPosts]);
 
-  // Realtime: new posts notification banner
+  // Realtime: new posts + interaction count sync
   useEffect(() => {
     const channel = supabase
-      .channel('home-new-posts')
+      .channel('home-posts-realtime')
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'posts',
-      }, () => {
-        setNewPostsAvailable(true);
+      }, (payload) => {
+        const newPost = payload.new as Post;
+        const isMemesTabMatch = activeTab === 'memes'
+          ? ['meme', 'story'].includes(String(newPost.type)) &&
+            new Date(String(newPost.created_at)).getTime() >= Date.now() - 24 * 60 * 60 * 1000
+          : true;
+
+        if (isMemesTabMatch) {
+          setNewPostsAvailable(true);
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'posts',
+      }, (payload) => {
+        const updated = payload.new as Post;
+        setPosts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+      })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'posts',
+      }, (payload) => {
+        const removed = payload.old as { id?: string };
+        if (!removed?.id) return;
+        setPosts((prev) => prev.filter((p) => p.id !== removed.id));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     fetchLikedIds();

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { Heart, MessageCircle, Share2, Bookmark, MoreHorizontal, Trash2, Flag } from 'lucide-react';
 import type { Post } from '@/types';
@@ -48,12 +48,23 @@ export function PostCard({ post, isLiked = false, className, onDeleted }: PostCa
   const [liked, setLiked] = useState(isLiked);
   const [likesCount, setLikesCount] = useState(post.likes_count);
   const [commentsCount, setCommentsCount] = useState(post.comments_count);
+  const [sharesCount, setSharesCount] = useState(Number(post.shares_count ?? 0));
   const [bookmarked, setBookmarked] = useState(false);
   const [liking, setLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
   const isOwn = user?.id === post.user_id;
+
+  useEffect(() => {
+    setLikesCount(Number(post.likes_count ?? 0));
+    setCommentsCount(Number(post.comments_count ?? 0));
+    setSharesCount(Number(post.shares_count ?? 0));
+  }, [post.likes_count, post.comments_count, post.shares_count]);
+
+  useEffect(() => {
+    setLiked(isLiked);
+  }, [isLiked]);
 
   const handleLike = async () => {
     if (!user) { toast.error('Sign in to like posts'); return; }
@@ -203,6 +214,7 @@ export function PostCard({ post, isLiked = false, className, onDeleted }: PostCa
             onClick={() => setShowShare(true)}
           >
             <Share2 className="w-4 h-4" />
+            {sharesCount > 0 && <span>{sharesCount}</span>}
           </Button>
 
           <Button
@@ -232,6 +244,7 @@ export function PostCard({ post, isLiked = false, className, onDeleted }: PostCa
         content={post.content}
         open={showShare}
         onClose={() => setShowShare(false)}
+        onShared={() => setSharesCount((prev) => prev + 1)}
       />
     </>
   );
