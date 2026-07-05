@@ -899,10 +899,19 @@ language plpgsql
 security definer
 as $$
 declare
+  v_min_withdrawal numeric := 1000;
   v_ref text;
 begin
   if auth.uid() is null then
     raise exception 'Unauthorized';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Withdrawal amount must be greater than zero';
+  end if;
+
+  if p_amount < v_min_withdrawal then
+    raise exception 'Minimum withdrawal is %', v_min_withdrawal;
   end if;
 
   insert into public.user_wallets(user_id)

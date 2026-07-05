@@ -1,0 +1,1 @@
+export const MIN_WITHDRAWAL_AMOUNT = 1000;

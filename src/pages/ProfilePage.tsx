@@ -12,12 +12,14 @@ import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { XPBar, LevelBadge } from '@/components/profile/XPBar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
+import { MIN_WITHDRAWAL_AMOUNT } from '@/lib/wallet';
 import { toast } from 'sonner';
 
 interface Stats { friends: number; rooms: number; posts: number; }
@@ -54,8 +56,18 @@ function SectionGroup({ children }: { children: React.ReactNode }) {
 export function ProfilePage() {
   const { profile, signOut, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const sb = supabase as any;
   const [stats, setStats] = useState<Stats>({ friends: 0, rooms: 0, posts: 0 });
   const [copied, setCopied] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [wallet, setWallet] = useState({ cash_balance: 0, pending_balance: 0 });
+  const [withdrawals, setWithdrawals] = useState<Array<Record<string, any>>>([]);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [submittingWithdrawal, setSubmittingWithdrawal] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -72,6 +84,46 @@ export function ProfilePage() {
       setStats({ friends: f || 0, rooms: r || 0, posts: p || 0 });
     });
   }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const loadWalletData = async () => {
+      setWalletLoading(true);
+      setWalletError(null);
+
+      const [{ data: walletRow, error: walletRowError }, { data: withdrawalRows, error: withdrawalError }] = await Promise.all([
+        sb
+          .from('user_wallets')
+          .select('cash_balance, pending_balance')
+          .eq('user_id', profile.id)
+          .maybeSingle(),
+        sb
+          .from('withdrawal_requests')
+          .select('id, amount, status, created_at')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(5),
+      ]);
+
+      if (walletRowError || withdrawalError) {
+        setWalletError('Wallet service is not available yet on this environment.');
+        setWallet({ cash_balance: 0, pending_balance: 0 });
+        setWithdrawals([]);
+        setWalletLoading(false);
+        return;
+      }
+
+      setWallet({
+        cash_balance: Number(walletRow?.cash_balance ?? 0),
+        pending_balance: Number(walletRow?.pending_balance ?? 0),
+      });
+      setWithdrawals(withdrawalRows ?? []);
+      setWalletLoading(false);
+    };
+
+    loadWalletData();
+  }, [profile, sb]);
 
   if (!profile) {
     return (
@@ -108,6 +160,70 @@ export function ProfilePage() {
   const handleToggleMute = async (val: boolean) => {
     await updateProfile({ mute_notifications: val });
     toast.success(val ? 'Notifications muted' : 'Notifications enabled');
+  };
+
+  const handleWithdrawalRequest = async () => {
+    const amount = Number(withdrawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid withdrawal amount.');
+      return;
+    }
+
+    if (amount < MIN_WITHDRAWAL_AMOUNT) {
+      toast.error(`Minimum withdrawal is ₦${MIN_WITHDRAWAL_AMOUNT.toLocaleString()}.`);
+      return;
+    }
+
+    if (amount > wallet.cash_balance) {
+      toast.error('Insufficient wallet balance.');
+      return;
+    }
+
+    if (!accountName.trim() || !accountNumber.trim() || !bankName.trim()) {
+      toast.error('Enter account name, account number, and bank name.');
+      return;
+    }
+
+    setSubmittingWithdrawal(true);
+    const { error } = await sb.rpc('request_withdrawal', {
+      p_amount: amount,
+      p_payment_method: 'bank_transfer',
+      p_account_details: {
+        account_name: accountName.trim(),
+        account_number: accountNumber.trim(),
+        bank_name: bankName.trim(),
+      },
+      p_reason: null,
+    });
+    setSubmittingWithdrawal(false);
+
+    if (error) {
+      toast.error(error.message ?? 'Unable to submit withdrawal request.');
+      return;
+    }
+
+    toast.success('Withdrawal request submitted.');
+    setWithdrawAmount('');
+
+    const [{ data: walletRow }, { data: withdrawalRows }] = await Promise.all([
+      sb
+        .from('user_wallets')
+        .select('cash_balance, pending_balance')
+        .eq('user_id', profile.id)
+        .maybeSingle(),
+      sb
+        .from('withdrawal_requests')
+        .select('id, amount, status, created_at')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    setWallet({
+      cash_balance: Number(walletRow?.cash_balance ?? 0),
+      pending_balance: Number(walletRow?.pending_balance ?? 0),
+    });
+    setWithdrawals(withdrawalRows ?? []);
   };
 
   return (
@@ -221,6 +337,59 @@ export function ProfilePage() {
               <Badge className="ml-auto bg-neon-gold/15 text-neon-gold border-neon-gold/20">Active</Badge>
             </div>
           )}
+
+          <div className="glass rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Wallet & Withdrawals</p>
+              <Badge variant="outline" className="text-xs">Min ₦{MIN_WITHDRAWAL_AMOUNT.toLocaleString()}</Badge>
+            </div>
+
+            {walletLoading ? (
+              <p className="text-xs text-muted-foreground">Loading wallet...</p>
+            ) : walletError ? (
+              <p className="text-xs text-amber-500">{walletError}</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-lg bg-muted/30 border border-border p-2">
+                    <p className="text-[11px] text-muted-foreground">Available Cash</p>
+                    <p className="font-semibold">₦{wallet.cash_balance.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/30 border border-border p-2">
+                    <p className="text-[11px] text-muted-foreground">Pending</p>
+                    <p className="font-semibold">₦{wallet.pending_balance.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder="Withdrawal amount (NGN)" />
+                  <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Bank name" />
+                  <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name" />
+                  <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Account number" />
+                </div>
+
+                <Button onClick={handleWithdrawalRequest} disabled={submittingWithdrawal} className="w-full">
+                  {submittingWithdrawal ? 'Submitting...' : 'Request Withdrawal'}
+                </Button>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Recent withdrawal requests</p>
+                  {withdrawals.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No withdrawals yet.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {withdrawals.map((row) => (
+                        <div key={row.id} className="flex items-center justify-between rounded-lg border border-border/60 px-2 py-1 text-xs">
+                          <span>₦{Number(row.amount ?? 0).toLocaleString()}</span>
+                          <span className="capitalize text-muted-foreground">{String(row.status ?? 'pending')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Cruise ID */}
