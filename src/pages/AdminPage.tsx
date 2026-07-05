@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useAdmin } from '@/hooks/useAdmin';
+import { isAdminEmail } from '@/lib/admin';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
@@ -33,6 +34,26 @@ const ADMIN_ROLES = [
     'advertisement_manager',
     'customer_support',
 ];
+
+function isMissingAdminRpcError(error: unknown) {
+    if (!error || typeof error !== 'object') return false;
+    const maybeError = error as { code?: string; message?: string; details?: string };
+    const haystack = `${maybeError.message ?? ''} ${maybeError.details ?? ''}`.toLowerCase();
+    return maybeError.code === 'PGRST202' || haystack.includes('could not find the function public.admin_get_my_role');
+}
+
+function getAdminAccessErrorMessage(error: unknown) {
+    if (!error || typeof error !== 'object') {
+        return 'Unable to verify admin access.';
+    }
+
+    const maybeError = error as { message?: string; code?: string; details?: string };
+    if (isMissingAdminRpcError(error)) {
+        return 'Admin backend is not deployed on this database yet. Please run migration_20260705_101500000 on project spb-t4n3j6fi3bx1eua7.';
+    }
+
+    return maybeError.message ?? 'Unable to verify admin access.';
+}
 
 function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
     if (!rows.length) {
@@ -176,9 +197,21 @@ export function AdminPage() {
                 }
                 setMyRole(roleInfo.role ?? 'admin');
                 setAuthReady(true);
-            } catch {
+            } catch (error) {
                 if (!mounted) return;
-                toast.error('Unable to verify admin access.');
+
+                // Fallback path so the configured emergency admin can still access
+                // the dashboard when backend RPC deployment is pending.
+                if (isMissingAdminRpcError(error) && isAdminEmail(user?.email)) {
+                    setMyRole('super_admin');
+                    setAuthReady(true);
+                    toast.warning(
+                        'Admin backend RPC is missing on this database. Dashboard access granted for default admin email, but data modules may fail until migration is applied.',
+                    );
+                    return;
+                }
+
+                toast.error(getAdminAccessErrorMessage(error));
                 navigate('/home', { replace: true });
             }
         })();
