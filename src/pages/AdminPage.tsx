@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
@@ -92,6 +92,7 @@ export function AdminPage() {
     const [myRole, setMyRole] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
     const [busy, setBusy] = useState(false);
+    const hasShownPartialDataWarning = useRef(false);
 
     const [metrics, setMetrics] = useState<Record<string, number>>({});
     const [charts, setCharts] = useState<Record<string, any>>({});
@@ -164,7 +165,7 @@ export function AdminPage() {
     const refreshAll = useCallback(async () => {
         setBusy(true);
         try {
-            await Promise.all([
+            const results = await Promise.allSettled([
                 loadOverview(),
                 loadUsers(),
                 loadModeration(),
@@ -172,6 +173,12 @@ export function AdminPage() {
                 loadWithdrawals(),
                 loadAds(),
             ]);
+
+            const rejected = results.filter((result) => result.status === 'rejected');
+            if (rejected.length && !hasShownPartialDataWarning.current) {
+                hasShownPartialDataWarning.current = true;
+                toast.warning('Some admin modules are unavailable until backend migration is applied. Core data is still loading.');
+            }
         } finally {
             setBusy(false);
         }
