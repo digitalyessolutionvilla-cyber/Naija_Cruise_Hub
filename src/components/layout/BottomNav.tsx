@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Hash, Users, MessageSquare, User } from 'lucide-react';
+import { Home, Hash, Users, MessageSquare, User, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/rooms', icon: Hash, label: 'Rooms' },
   { to: '/explore', icon: Users, label: 'Explore' },
   { to: '/messages', icon: MessageSquare, label: 'Messages' },
+  { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/profile', icon: User, label: 'Profile' },
 ];
 

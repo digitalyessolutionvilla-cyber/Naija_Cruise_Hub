@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, Users, Bell, User, Zap, Coins, LogOut, Moon, Sun, Hash } from 'lucide-react';
+import { Home, MessageSquare, Users, Bell, User, Zap, Coins, LogOut, Moon, Sun, Hash, Wallet } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationContext } from '@/context/NotificationContext';
 import { useOnlineStatus } from '@/hooks/useRealtime';
@@ -18,6 +18,7 @@ const navItems = [
   { to: '/explore', icon: Users, label: 'Explore' },
   { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/notifications', icon: Bell, label: 'Notifications' },
+  { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/profile', icon: User, label: 'My Profile' },
 ];
 

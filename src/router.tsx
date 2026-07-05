@@ -9,6 +9,7 @@ import { MessagesPage } from "./pages/MessagesPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { TasksRewardsPage } from "./pages/TasksRewardsPage";
+import { WalletPage } from "./pages/WalletPage";
 import { AdminPage } from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
 
@@ -19,6 +20,7 @@ export const routers = [
   { path: "/rooms", name: "rooms", element: <ChatRoomsPage /> },
   { path: "/rooms/:id", name: "room", element: <ChatRoomPage /> },
   { path: "/profile", name: "profile", element: <ProfilePage /> },
+  { path: "/wallet", name: "wallet", element: <WalletPage /> },
   { path: "/tasks", name: "tasks", element: <TasksRewardsPage /> },
   { path: "/profile/:userId", name: "user-profile", element: <UserProfilePage /> },
   { path: "/messages", name: "messages", element: <MessagesPage /> },

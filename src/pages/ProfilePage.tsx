@@ -62,7 +62,6 @@ export function ProfilePage() {
   const [stats, setStats] = useState<Stats>({ friends: 0, rooms: 0, posts: 0 });
   const [copied, setCopied] = useState(false);
   const [walletLoading, setWalletLoading] = useState(false);
-  const [walletError, setWalletError] = useState<string | null>(null);
   const [wallet, setWallet] = useState({ cash_balance: 0, pending_balance: 0 });
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(MIN_WITHDRAWAL_AMOUNT);
   const [withdrawals, setWithdrawals] = useState<Array<Record<string, any>>>([]);
@@ -93,7 +92,6 @@ export function ProfilePage() {
 
     const loadWalletData = async () => {
       setWalletLoading(true);
-      setWalletError(null);
 
       const [
         { data: walletRow, error: walletRowError },
@@ -119,7 +117,6 @@ export function ProfilePage() {
       ]);
 
       if (walletRowError || withdrawalError) {
-        setWalletError('Wallet service is not available yet on this environment.');
         setWallet({ cash_balance: 0, pending_balance: 0 });
         setWithdrawals([]);
         setWalletLoading(false);
@@ -362,8 +359,6 @@ export function ProfilePage() {
 
             {walletLoading ? (
               <p className="text-xs text-muted-foreground">Loading wallet...</p>
-            ) : walletError ? (
-              <p className="text-xs text-amber-500">{walletError}</p>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2 text-sm">
@@ -403,6 +398,10 @@ export function ProfilePage() {
                     </div>
                   )}
                 </div>
+
+                <Button variant="outline" onClick={() => navigate('/wallet')} className="w-full">
+                  Open Full Wallet Dashboard
+                </Button>
               </>
             )}
           </div>
