@@ -453,7 +453,15 @@ export function ProfilePage() {
         {/* Settings */}
         <div className="px-4 pb-4">
           <SectionGroup>
-            <SettingsRow icon={<UserPlus className="w-5 h-5" />} label="Invite Friends" onClick={() => { navigator.clipboard.writeText(window.location.origin); toast.success('Link copied!'); }} />
+            <SettingsRow
+              icon={<UserPlus className="w-5 h-5" />}
+              label="Invite Friends"
+              onClick={() => {
+                const inviteLink = `${window.location.origin}/auth?mode=register&invite=${encodeURIComponent(profile.id)}`;
+                navigator.clipboard.writeText(inviteLink);
+                toast.success('Invite link copied!');
+              }}
+            />
             <div className="w-full flex items-center gap-4 px-4 py-4">
               <EyeOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
               <div className="flex-1">

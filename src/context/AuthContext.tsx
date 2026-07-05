@@ -17,6 +17,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const INVITE_CODE_STORAGE_KEY = 'cruisehub_invite_code';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -39,6 +40,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchProfile(userId);
   }, [fetchProfile]);
 
+  const claimInviteReward = useCallback(async () => {
+    const inviteCode = localStorage.getItem(INVITE_CODE_STORAGE_KEY);
+    if (!inviteCode) return;
+
+    const sb = supabase as any;
+    const { error } = await sb.rpc('claim_invite_reward', {
+      p_invite_code: inviteCode,
+    });
+
+    if (!error) {
+      localStorage.removeItem(INVITE_CODE_STORAGE_KEY);
+      return;
+    }
+
+    const msg = (error.message || '').toLowerCase();
+    if (
+      msg.includes('already claimed') ||
+      msg.includes('cannot claim your own') ||
+      msg.includes('invalid invite') ||
+      msg.includes('inviter not found')
+    ) {
+      localStorage.removeItem(INVITE_CODE_STORAGE_KEY);
+    }
+  }, []);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
@@ -49,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             fetchProfile(newSession.user.id);
             if (event === 'SIGNED_IN') {
               claimDailyLogin(newSession.user.id);
+              claimInviteReward();
             }
           }, 0);
         } else {
@@ -66,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile, claimDailyLogin]);
+  }, [fetchProfile, claimDailyLogin, claimInviteReward]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user.id);

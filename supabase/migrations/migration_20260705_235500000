@@ -1,0 +1,114 @@
+-- Invite referral rewards: generate invite links and credit inviter when invitee signs up
+
+create table if not exists public.invite_reward_claims (
+  id uuid primary key default gen_random_uuid(),
+  inviter_id uuid not null references public.profiles(id) on delete cascade,
+  invitee_id uuid not null references public.profiles(id) on delete cascade,
+  invite_code text not null,
+  reward_coins integer not null default 100,
+  created_at timestamptz not null default now(),
+  unique (invitee_id)
+);
+
+create index if not exists idx_invite_reward_claims_inviter on public.invite_reward_claims(inviter_id, created_at desc);
+
+alter table public.invite_reward_claims enable row level security;
+
+drop policy if exists "Users view own invite rewards" on public.invite_reward_claims;
+create policy "Users view own invite rewards" on public.invite_reward_claims
+  for select using (auth.uid() = inviter_id or auth.uid() = invitee_id);
+
+drop policy if exists "Users create own invite reward claim" on public.invite_reward_claims;
+create policy "Users create own invite reward claim" on public.invite_reward_claims
+  for insert with check (auth.uid() = invitee_id);
+
+create or replace function public.claim_invite_reward(
+  p_invite_code text,
+  p_reward_coins integer default 100
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_inviter_id uuid;
+  v_claim_id uuid;
+  v_reward integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Unauthorized';
+  end if;
+
+  if p_invite_code is null or length(trim(p_invite_code)) = 0 then
+    raise exception 'Invalid invite code';
+  end if;
+
+  begin
+    v_inviter_id := trim(p_invite_code)::uuid;
+  exception
+    when others then
+      raise exception 'Invalid invite code';
+  end;
+
+  if v_inviter_id = auth.uid() then
+    raise exception 'Cannot claim your own invite';
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles
+    where id = v_inviter_id
+  ) then
+    raise exception 'Inviter not found';
+  end if;
+
+  if exists (
+    select 1
+    from public.invite_reward_claims
+    where invitee_id = auth.uid()
+  ) then
+    raise exception 'Invite reward already claimed';
+  end if;
+
+  v_reward := greatest(coalesce(p_reward_coins, 100), 1);
+
+  insert into public.invite_reward_claims (
+    inviter_id,
+    invitee_id,
+    invite_code,
+    reward_coins
+  ) values (
+    v_inviter_id,
+    auth.uid(),
+    p_invite_code,
+    v_reward
+  )
+  returning id into v_claim_id;
+
+  update public.profiles
+  set coins = coalesce(coins, 0) + v_reward
+  where id = v_inviter_id;
+
+  insert into public.notifications (
+    user_id,
+    type,
+    title,
+    body,
+    is_read
+  ) values (
+    v_inviter_id,
+    'referral',
+    'Referral Reward',
+    format('You earned %s Cruise Coins from inviting a friend!', v_reward),
+    false
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'claim_id', v_claim_id,
+    'inviter_id', v_inviter_id,
+    'invitee_id', auth.uid(),
+    'reward_coins', v_reward
+  );
+end;
+$$;

@@ -39,6 +39,7 @@ interface RegData {
 }
 
 const STEPS = ['Account', 'Profile', 'Location', 'Avatar'];
+const INVITE_CODE_STORAGE_KEY = 'cruisehub_invite_code';
 
 function getAuthErrorMessage(error: Error, action: 'signin' | 'signup') {
   const message = (error.message || '').toLowerCase();
@@ -64,6 +65,7 @@ function isRateLimitedError(error: Error) {
 
 export function AuthPage() {
   const [searchParams] = useSearchParams();
+  const inviteCode = searchParams.get('invite')?.trim() || '';
   const [isLogin, setIsLogin] = useState(searchParams.get('mode') !== 'register');
   const [step, setStep] = useState(0);
   const [showPw, setShowPw] = useState(false);
@@ -75,6 +77,12 @@ export function AuthPage() {
   useEffect(() => {
     if (user) navigate('/home');
   }, [user, navigate]);
+
+  useEffect(() => {
+    if (inviteCode) {
+      localStorage.setItem(INVITE_CODE_STORAGE_KEY, inviteCode);
+    }
+  }, [inviteCode]);
 
   const loginForm = useForm<LoginData>({ resolver: zodResolver(loginSchema) });
   const reg1Form = useForm<RegStep1Data>({ resolver: zodResolver(registerStep1Schema) });
@@ -247,6 +255,9 @@ export function AuthPage() {
                   {step === 0 && (
                     <motion.div key="s0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
                       <h2 className="text-xl font-bold">Create your account</h2>
+                      {inviteCode && (
+                        <p className="text-xs text-neon-green">Invite detected. Your inviter will be rewarded after your account is created.</p>
+                      )}
                       <form onSubmit={reg1Form.handleSubmit(handleReg1)} className="space-y-3">
                         <div>
                           <Label>Username</Label>
