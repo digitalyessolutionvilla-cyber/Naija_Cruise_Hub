@@ -1,0 +1,9 @@
+-- Ensure authenticated users can create chat rooms under RLS
+
+alter table if exists public.chat_rooms enable row level security;
+
+drop policy if exists "Auth users create rooms" on public.chat_rooms;
+create policy "Auth users create rooms" on public.chat_rooms
+  for insert
+  to authenticated
+  with check (auth.uid() is not null);
