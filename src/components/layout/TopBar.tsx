@@ -6,7 +6,7 @@ import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { SearchBar } from './SearchBar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { formatNairaAmount, toNairaEquivalent } from '@/lib/wallet';
+import { formatCurrencyAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 
 interface TopBarProps {
@@ -49,7 +49,7 @@ export function TopBar({ title, showSearch = true, className }: TopBarProps) {
             <Coins className="w-3.5 h-3.5" />
             <div className="flex items-center gap-2">
               <span>{profile.coins.toLocaleString()}</span>
-              <span className="text-[10px] text-muted-foreground">{formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))}</span>
+              <span className="text-[10px] text-muted-foreground">{formatCurrencyAmount(toLocalCurrencyEquivalent(Number(profile.coins ?? 0), rate, profile.country), profile.country)}</span>
             </div>
           </div>
         )}

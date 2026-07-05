@@ -20,6 +20,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
 import { MIN_WITHDRAWAL_AMOUNT, formatNairaAmount, normalizeMinWithdrawalAmount, toNairaEquivalent } from '@/lib/wallet';
+import { MIN_WITHDRAWAL_AMOUNT, convertFromNaira, formatCurrencyAmount, getCurrencyCode, normalizeMinWithdrawalAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 
@@ -147,6 +148,8 @@ export function ProfilePage() {
 
   const avatar = AVATARS.find(a => a.id === profile.avatar_id) || AVATARS[0];
   const levelNum = getLevelNumber(profile.xp);
+  const currencyCountry = profile.country || 'Nigeria';
+  const currencyCode = getCurrencyCode(currencyCountry);
   const joinedDate = new Date(profile.created_at || Date.now())
     .toLocaleDateString('en-NG', { month: 'long', year: 'numeric' });
 
@@ -239,7 +242,7 @@ export function ProfilePage() {
   return (
     <AppLayout>
       <div className="max-w-2xl mx-auto w-full">
-        {/* Hero Banner */}
+        toast.error(`Minimum withdrawal is ${formatCurrencyAmount(convertFromNaira(minWithdrawalAmount, currencyCountry), currencyCountry)}.`);
         <div className="relative">
           <button
             onClick={() => navigate(-1)}
@@ -331,7 +334,7 @@ export function ProfilePage() {
               <p className="text-xs text-muted-foreground">Cruise Coins</p>
               <p className="text-xl font-bold text-neon-gold">{profile.coins.toLocaleString()}</p>
               <p className="text-[11px] text-muted-foreground">
-                {formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))} equivalent
+                {formatCurrencyAmount(toLocalCurrencyEquivalent(Number(profile.coins ?? 0), rate, currencyCountry), currencyCountry)} equivalent
               </p>
             </div>
             <Button size="sm" className="gradient-primary text-white border-0 text-xs" onClick={() => navigate('/tasks')}>
@@ -355,6 +358,7 @@ export function ProfilePage() {
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Wallet & Withdrawals</p>
               <Badge variant="outline" className="text-xs">Min ₦{minWithdrawalAmount.toLocaleString()}</Badge>
+              <Badge variant="outline" className="text-xs">Min {formatCurrencyAmount(convertFromNaira(minWithdrawalAmount, currencyCountry), currencyCountry)}</Badge>
             </div>
 
             {walletLoading ? (
@@ -364,16 +368,16 @@ export function ProfilePage() {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-lg bg-muted/30 border border-border p-2">
                     <p className="text-[11px] text-muted-foreground">Available Cash</p>
-                    <p className="font-semibold">₦{wallet.cash_balance.toLocaleString()}</p>
+                    <p className="font-semibold">{formatCurrencyAmount(wallet.cash_balance, currencyCountry)}</p>
                   </div>
                   <div className="rounded-lg bg-muted/30 border border-border p-2">
                     <p className="text-[11px] text-muted-foreground">Pending</p>
-                    <p className="font-semibold">₦{wallet.pending_balance.toLocaleString()}</p>
+                    <p className="font-semibold">{formatCurrencyAmount(wallet.pending_balance, currencyCountry)}</p>
                   </div>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder="Withdrawal amount (NGN)" />
+                  <Input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder={`Withdrawal amount (${currencyCode})`} />
                   <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Bank name" />
                   <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name" />
                   <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Account number" />
@@ -391,7 +395,7 @@ export function ProfilePage() {
                     <div className="space-y-1">
                       {withdrawals.map((row) => (
                         <div key={row.id} className="flex items-center justify-between rounded-lg border border-border/60 px-2 py-1 text-xs">
-                          <span>₦{Number(row.amount ?? 0).toLocaleString()}</span>
+                          <span>{formatCurrencyAmount(Number(row.amount ?? 0), currencyCountry)}</span>
                           <span className="capitalize text-muted-foreground">{String(row.status ?? 'pending')}</span>
                         </div>
                       ))}

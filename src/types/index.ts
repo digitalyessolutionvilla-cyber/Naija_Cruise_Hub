@@ -186,3 +186,16 @@ export const NIGERIAN_STATES = [
   'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto',
   'Taraba', 'Yobe', 'Zamfara',
 ];
+
+export const COUNTRY_STATE_OPTIONS: Record<string, string[]> = {
+  Nigeria: NIGERIAN_STATES,
+  Ghana: ['Ashanti', 'Greater Accra', 'Central', 'Eastern', 'Northern', 'Western', 'Volta', 'Oti', 'Bono', 'Ahafo'],
+  Kenya: ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Kiambu', 'Uasin Gishu', 'Machakos', 'Meru', 'Kakamega', 'Nyeri'],
+  'South Africa': ['Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape', 'Limpopo', 'Mpumalanga', 'North West', 'Free State', 'Northern Cape'],
+  'United States': ['California', 'Texas', 'Florida', 'New York', 'Georgia', 'Virginia', 'Illinois', 'Washington', 'New Jersey', 'Massachusetts'],
+  'United Kingdom': ['England', 'Scotland', 'Wales', 'Northern Ireland'],
+  Canada: ['Ontario', 'Quebec', 'British Columbia', 'Alberta', 'Manitoba', 'Saskatchewan', 'Nova Scotia', 'New Brunswick'],
+  India: ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Uttar Pradesh', 'West Bengal', 'Rajasthan', 'Punjab', 'Kerala'],
+};
+
+export const COUNTRY_OPTIONS = Object.keys(COUNTRY_STATE_OPTIONS);

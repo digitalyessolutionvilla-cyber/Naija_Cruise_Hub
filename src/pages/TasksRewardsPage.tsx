@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { formatNairaAmount } from '@/lib/wallet';
+import { convertFromNaira, formatCurrencyAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 import {
@@ -234,6 +234,7 @@ function getLocalClaimKey(taskKey: string, scopeKey: string) {
 export function TasksRewardsPage() {
     const { user, profile, refreshProfile, updateProfile } = useAuth();
     const { rate } = useExchangeRate();
+    const currencyCountry = profile?.country || 'Nigeria';
     const [loading, setLoading] = useState(true);
     const [rpcUnavailable, setRpcUnavailable] = useState(false);
     const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -410,7 +411,7 @@ export function TasksRewardsPage() {
                             <Badge className="w-fit bg-neon-gold/15 text-neon-gold border-neon-gold/20">Get More</Badge>
                             <h1 className="text-3xl font-bold tracking-tight">Earn Cruise Coins with real platform activity</h1>
                             <p className="max-w-2xl text-sm text-muted-foreground">
-                                Complete the tasks below to grow your balance. Every claim is tied to the live backend, and your Cruise Coins stay convertible at the current rate of {formatNairaAmount(rate)} per coin.
+                                Complete the tasks below to grow your balance. Every claim is tied to the live backend, and your Cruise Coins stay convertible at the current rate of {formatCurrencyAmount(convertFromNaira(rate, currencyCountry), currencyCountry)} per coin.
                             </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -420,7 +421,7 @@ export function TasksRewardsPage() {
                             </div>
                             <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                                 <p className="text-xs text-muted-foreground">Equivalent</p>
-                                <p className="text-lg font-semibold">{formatNairaAmount(Number(profile?.coins ?? 0) * rate)}</p>
+                                <p className="text-lg font-semibold">{formatCurrencyAmount(toLocalCurrencyEquivalent(Number(profile?.coins ?? 0), rate, currencyCountry), currencyCountry)}</p>
                             </div>
                             <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                                 <p className="text-xs text-muted-foreground">Claimable</p>

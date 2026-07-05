@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/AuthContext';
-import { AVATARS, INTERESTS, NIGERIAN_STATES } from '@/types';
+import { AVATARS, COUNTRY_OPTIONS, COUNTRY_STATE_OPTIONS, INTERESTS } from '@/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -69,7 +69,7 @@ export function AuthPage() {
   const [isLogin, setIsLogin] = useState(searchParams.get('mode') !== 'register');
   const [step, setStep] = useState(0);
   const [showPw, setShowPw] = useState(false);
-  const [regData, setRegData] = useState<Partial<RegData>>({ interests: [], avatar_id: 'av1' });
+  const [regData, setRegData] = useState<Partial<RegData>>({ interests: [], avatar_id: 'av1', country: 'Nigeria' });
   const [loading, setLoading] = useState(false);
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
@@ -113,8 +113,12 @@ export function AuthPage() {
   };
 
   const handleReg3 = () => {
+    if (!regData.country) {
+      toast.error('Please select your country');
+      return;
+    }
     if (!regData.state) {
-      toast.error('Please select your state');
+      toast.error('Please select your state/region');
       return;
     }
     setStep(3);
@@ -124,7 +128,12 @@ export function AuthPage() {
     setLoading(true);
     const email = regData.email!;
     const password = regData.password!;
-    const { error } = await signUp(email, password, regData.username!);
+    const { error } = await signUp(email, password, regData.username!, {
+      country: regData.country,
+      state: regData.state,
+      gender: regData.gender,
+      avatar_id: regData.avatar_id,
+    });
     if (error) {
       if (isRateLimitedError(error)) {
         // If account creation already happened previously, sign-in can still succeed.
@@ -155,6 +164,8 @@ export function AuthPage() {
         : [...(prev.interests || []), interest],
     }));
   };
+
+  const availableRegions = COUNTRY_STATE_OPTIONS[regData.country || 'Nigeria'] || [];
 
   return (
     <div className="min-h-screen bg-background bg-mesh flex items-center justify-center p-4">
@@ -321,14 +332,24 @@ export function AuthPage() {
                     <motion.div key="s2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
                       <h2 className="text-xl font-bold">Where are you from?</h2>
                       <div>
-                        <Label>State</Label>
+                        <Label>Country</Label>
+                        <select
+                          className="w-full mt-1 h-10 px-3 rounded-lg border border-input bg-background text-sm"
+                          value={regData.country || 'Nigeria'}
+                          onChange={e => setRegData(p => ({ ...p, country: e.target.value, state: '' }))}
+                        >
+                          {COUNTRY_OPTIONS.map(country => <option key={country} value={country}>{country}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <Label>State / Region</Label>
                         <select
                           className="w-full mt-1 h-10 px-3 rounded-lg border border-input bg-background text-sm"
                           value={regData.state || ''}
                           onChange={e => setRegData(p => ({ ...p, state: e.target.value }))}
                         >
-                          <option value="">Select your state</option>
-                          {NIGERIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                          <option value="">Select your state/region</option>
+                          {availableRegions.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                       <div>

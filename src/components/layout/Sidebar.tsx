@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
-import { formatNairaAmount, toNairaEquivalent } from '@/lib/wallet';
+import { formatCurrencyAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 
 const navItems = [
@@ -63,7 +63,7 @@ export function Sidebar() {
             <span>{profile.coins.toLocaleString()} Coins</span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))} equivalent
+            {formatCurrencyAmount(toLocalCurrencyEquivalent(Number(profile.coins ?? 0), rate, profile.country), profile.country)} equivalent
           </p>
         </div>
       )}

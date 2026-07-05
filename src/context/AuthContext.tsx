@@ -9,7 +9,12 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, username: string) => Promise<{ error: Error | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    username: string,
+    metadata?: { country?: string; state?: string; gender?: string; avatar_id?: string }
+  ) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<{ error: Error | null }>;
@@ -99,12 +104,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await fetchProfile(user.id);
   }, [user, fetchProfile]);
 
-  const signUp = async (email: string, password: string, username: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    username: string,
+    metadata?: { country?: string; state?: string; gender?: string; avatar_id?: string }
+  ) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { username },
+        data: {
+          username,
+          country: metadata?.country,
+          state: metadata?.state,
+          gender: metadata?.gender,
+          avatar_id: metadata?.avatar_id,
+        },
         emailRedirectTo: `${window.location.origin}/`,
       },
     });

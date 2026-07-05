@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { formatNairaAmount, normalizeMinWithdrawalAmount, toNairaEquivalent } from '@/lib/wallet';
+import { convertFromNaira, formatCurrencyAmount, getCurrencyCode, normalizeMinWithdrawalAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 
@@ -75,7 +75,10 @@ export function WalletPage() {
     const [accountNumber, setAccountNumber] = useState('');
 
     const coins = Number(profile?.coins ?? 0);
-    const nairaEquivalent = toNairaEquivalent(coins, rate);
+    const currencyCountry = profile?.country || 'Nigeria';
+    const currencyCode = getCurrencyCode(currencyCountry);
+    const currencyEquivalent = toLocalCurrencyEquivalent(coins, rate, currencyCountry);
+    const minWithdrawalLocal = convertFromNaira(minWithdrawalAmount, currencyCountry);
 
     const loadWallet = useCallback(async () => {
         if (!user) return;
@@ -142,7 +145,8 @@ export function WalletPage() {
             throw new Error('Insufficient Cruise Coin balance');
         }
 
-        const convertedCash = Math.round(amount * effectiveRate * 100) / 100;
+        const countryFx = convertFromNaira(1, currencyCountry);
+        const convertedCash = Math.round(amount * effectiveRate * countryFx * 100) / 100;
         const reference = `CNV-LOCAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
         const { error: coinDebitError } = await sb
@@ -198,7 +202,7 @@ export function WalletPage() {
                 rate: effectiveRate,
             },
         });
-    }, [profile?.coins, rate, user]);
+    }, [currencyCountry, profile?.coins, rate, user]);
 
     const handleFundWallet = async () => {
         const amount = Number(fundAmount);
@@ -289,8 +293,8 @@ export function WalletPage() {
             toast.error('Enter a valid withdrawal amount.');
             return;
         }
-        if (amount < minWithdrawalAmount) {
-            toast.error(`Minimum withdrawal is ${formatNairaAmount(minWithdrawalAmount)}.`);
+        if (amount < minWithdrawalLocal) {
+            toast.error(`Minimum withdrawal is ${formatCurrencyAmount(minWithdrawalLocal, currencyCountry)}.`);
             return;
         }
         if (amount > wallet.cash_balance) {
@@ -350,31 +354,31 @@ export function WalletPage() {
                         <p className="mt-1 text-2xl font-semibold text-neon-gold">{coins.toLocaleString()}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-4">
-                        <p className="text-xs text-muted-foreground">Naira Equivalent</p>
-                        <p className="mt-1 text-2xl font-semibold">{formatNairaAmount(nairaEquivalent)}</p>
+                        <p className="text-xs text-muted-foreground">Currency Equivalent</p>
+                        <p className="mt-1 text-2xl font-semibold">{formatCurrencyAmount(currencyEquivalent, currencyCountry)}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-4">
                         <p className="text-xs text-muted-foreground">Cash Wallet Balance</p>
-                        <p className="mt-1 text-2xl font-semibold">{formatNairaAmount(wallet.cash_balance)}</p>
+                        <p className="mt-1 text-2xl font-semibold">{formatCurrencyAmount(wallet.cash_balance, currencyCountry)}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-4">
                         <p className="text-xs text-muted-foreground">Total Earnings</p>
-                        <p className="mt-1 text-xl font-semibold">{formatNairaAmount(wallet.total_earnings)}</p>
+                        <p className="mt-1 text-xl font-semibold">{formatCurrencyAmount(wallet.total_earnings, currencyCountry)}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-4">
                         <p className="text-xs text-muted-foreground">Pending Earnings</p>
-                        <p className="mt-1 text-xl font-semibold">{formatNairaAmount(wallet.pending_balance)}</p>
+                        <p className="mt-1 text-xl font-semibold">{formatCurrencyAmount(wallet.pending_balance, currencyCountry)}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card p-4">
                         <p className="text-xs text-muted-foreground">Total Withdrawals</p>
-                        <p className="mt-1 text-xl font-semibold">{formatNairaAmount(wallet.total_withdrawals)}</p>
+                        <p className="mt-1 text-xl font-semibold">{formatCurrencyAmount(wallet.total_withdrawals, currencyCountry)}</p>
                     </div>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="rounded-xl border border-border bg-card p-4 space-y-3">
                         <h2 className="font-semibold">Convert Coins</h2>
-                        <p className="text-xs text-muted-foreground">Convert eligible Cruise Coins to wallet balance at {formatNairaAmount(rate)} per coin.</p>
+                        <p className="text-xs text-muted-foreground">Convert eligible Cruise Coins to wallet balance at {formatCurrencyAmount(convertFromNaira(rate, currencyCountry), currencyCountry)} per coin.</p>
                         <Label htmlFor="convert-amount">Cruise Coins</Label>
                         <Input id="convert-amount" value={coinAmountToConvert} onChange={(e) => setCoinAmountToConvert(e.target.value)} placeholder="e.g. 100" />
                         <Button onClick={handleConvertCoins} disabled={busy || loading} className="w-full">
@@ -384,7 +388,7 @@ export function WalletPage() {
 
                     <div className="rounded-xl border border-border bg-card p-4 space-y-3">
                         <h2 className="font-semibold">Fund Wallet</h2>
-                        <Label htmlFor="fund-amount">Amount (NGN)</Label>
+                        <Label htmlFor="fund-amount">Amount ({currencyCode})</Label>
                         <Input id="fund-amount" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} placeholder="e.g. 5000" />
                         <Label htmlFor="fund-method">Method</Label>
                         <Input id="fund-method" value={fundMethod} onChange={(e) => setFundMethod(e.target.value)} placeholder="manual" />
@@ -395,7 +399,7 @@ export function WalletPage() {
 
                     <div className="rounded-xl border border-border bg-card p-4 space-y-3">
                         <h2 className="font-semibold">Withdraw Funds</h2>
-                        <p className="text-xs text-muted-foreground">Minimum withdrawal: {formatNairaAmount(minWithdrawalAmount)}</p>
+                        <p className="text-xs text-muted-foreground">Minimum withdrawal: {formatCurrencyAmount(minWithdrawalLocal, currencyCountry)}</p>
                         <Input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder="Withdrawal amount" />
                         <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Bank name" />
                         <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name" />
@@ -424,7 +428,7 @@ export function WalletPage() {
                                             <p className="text-xs text-muted-foreground">{tx.reference_number}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="font-semibold">{formatNairaAmount(Number(tx.amount ?? 0))}</p>
+                                            <p className="font-semibold">{formatCurrencyAmount(Number(tx.amount ?? 0), currencyCountry)}</p>
                                             <p className="text-xs text-muted-foreground uppercase">{tx.asset_type}</p>
                                         </div>
                                     </div>
@@ -455,7 +459,7 @@ export function WalletPage() {
                                     <p className="text-xs text-muted-foreground">{new Date(tx.created_at).toLocaleString()}</p>
                                     <p className="text-xs text-muted-foreground">{tx.reference_number}</p>
                                     <p className="mt-1 text-xs text-muted-foreground">
-                                        Coin amount: {Number(tx.metadata?.coin_amount ?? 0).toLocaleString()} | Cash credited: {formatNairaAmount(Number(tx.amount ?? 0))}
+                                        Coin amount: {Number(tx.metadata?.coin_amount ?? 0).toLocaleString()} | Cash credited: {formatCurrencyAmount(Number(tx.amount ?? 0), currencyCountry)}
                                     </p>
                                 </div>
                             ))}
