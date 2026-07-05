@@ -93,6 +93,8 @@ export function AdminPage() {
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
     const [busy, setBusy] = useState(false);
     const hasShownPartialDataWarning = useRef(false);
+    const consecutiveFailedRefreshes = useRef(0);
+    const autoRefreshPaused = useRef(false);
 
     const [metrics, setMetrics] = useState<Record<string, number>>({});
     const [charts, setCharts] = useState<Record<string, any>>({});
@@ -179,6 +181,18 @@ export function AdminPage() {
                 hasShownPartialDataWarning.current = true;
                 toast.warning('Some admin modules are unavailable until backend migration is applied. Core data is still loading.');
             }
+
+            if (rejected.length === results.length) {
+                consecutiveFailedRefreshes.current += 1;
+            } else {
+                consecutiveFailedRefreshes.current = 0;
+                autoRefreshPaused.current = false;
+            }
+
+            if (consecutiveFailedRefreshes.current >= 2 && !autoRefreshPaused.current) {
+                autoRefreshPaused.current = true;
+                toast.warning('Live auto-refresh paused because backend is unavailable. Use "Refresh Now" after migration is applied.');
+            }
         } finally {
             setBusy(false);
         }
@@ -235,6 +249,7 @@ export function AdminPage() {
         });
 
         const timer = window.setInterval(() => {
+            if (autoRefreshPaused.current) return;
             refreshAll().catch(() => {
                 // Silent background refresh error.
             });
