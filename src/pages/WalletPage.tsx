@@ -22,6 +22,13 @@ function isMissingRpc(error: unknown, fn: string) {
     return e.code === 'PGRST202' || haystack.includes(`function public.${fn}`);
 }
 
+function isMissingTable(error: unknown, table: string) {
+    if (!error || typeof error !== 'object') return false;
+    const e = error as { code?: string; message?: string; details?: string };
+    const haystack = `${e.message ?? ''} ${e.details ?? ''}`.toLowerCase();
+    return e.code === 'PGRST205' || haystack.includes(`table 'public.${table}'`) || haystack.includes(`relation \"public.${table}\"`);
+}
+
 type WalletRow = {
     cash_balance: number;
     cruise_coin_balance: number;
@@ -114,6 +121,85 @@ export function WalletPage() {
         [transactions],
     );
 
+    const runClientSideCoinConversion = useCallback(async (amount: number) => {
+        if (!user) throw new Error('Unauthorized');
+
+        const { data: settingsRow } = await sb
+            .from('coin_exchange_settings')
+            .select('coin_to_naira_rate, min_coin_conversion')
+            .eq('id', true)
+            .maybeSingle();
+
+        const effectiveRate = Number(settingsRow?.coin_to_naira_rate ?? rate ?? 1) || 1;
+        const minCoinConversion = Number(settingsRow?.min_coin_conversion ?? 1) || 1;
+
+        if (amount < minCoinConversion) {
+            throw new Error(`Minimum coin conversion is ${minCoinConversion}.`);
+        }
+
+        const currentCoins = Number(profile?.coins ?? 0);
+        if (currentCoins < amount) {
+            throw new Error('Insufficient Cruise Coin balance');
+        }
+
+        const convertedCash = Math.round(amount * effectiveRate * 100) / 100;
+        const reference = `CNV-LOCAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+        const { error: coinDebitError } = await sb
+            .from('profiles')
+            .update({ coins: Math.max(currentCoins - amount, 0) })
+            .eq('id', user.id)
+            .gte('coins', amount);
+
+        if (coinDebitError) {
+            throw coinDebitError;
+        }
+
+        await sb.from('user_wallets').upsert({ user_id: user.id }, { onConflict: 'user_id' });
+
+        const { data: latestWallet, error: latestWalletError } = await sb
+            .from('user_wallets')
+            .select('cash_balance, total_earnings, cruise_coin_balance')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (latestWalletError) {
+            await sb.from('profiles').update({ coins: currentCoins }).eq('id', user.id);
+            throw latestWalletError;
+        }
+
+        const { error: walletCreditError } = await sb
+            .from('user_wallets')
+            .update({
+                cash_balance: Number(latestWallet?.cash_balance ?? 0) + convertedCash,
+                total_earnings: Number(latestWallet?.total_earnings ?? 0) + convertedCash,
+                cruise_coin_balance: Math.max(Number(latestWallet?.cruise_coin_balance ?? currentCoins) - amount, 0),
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.id);
+
+        if (walletCreditError) {
+            await sb.from('profiles').update({ coins: currentCoins }).eq('id', user.id);
+            throw walletCreditError;
+        }
+
+        await sb.from('wallet_transactions').insert({
+            user_id: user.id,
+            transaction_type: 'coin_conversion',
+            asset_type: 'cash',
+            amount: convertedCash,
+            status: 'completed',
+            description: 'Cruise Coin converted to wallet balance',
+            reference_number: reference,
+            created_by: user.id,
+            metadata: {
+                source: 'client_side_conversion_fallback',
+                coin_amount: amount,
+                rate: effectiveRate,
+            },
+        });
+    }, [profile?.coins, rate, user]);
+
     const handleFundWallet = async () => {
         const amount = Number(fundAmount);
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -168,7 +254,16 @@ export function WalletPage() {
             if (!fallback.error) {
                 error = null;
             } else if (isMissingRpc(fallback.error, 'convert_coins_to_cash')) {
-                error = new Error('Coin conversion backend is not deployed yet. Please apply wallet conversion migration on the active database.');
+                try {
+                    await runClientSideCoinConversion(amount);
+                    error = null;
+                } catch (clientFallbackError) {
+                    if (isMissingTable(clientFallbackError, 'user_wallets') || isMissingTable(clientFallbackError, 'wallet_transactions')) {
+                        error = new Error('Wallet backend tables are not deployed on the active database yet. Please apply wallet schema migrations on this project.');
+                    } else {
+                        error = clientFallbackError;
+                    }
+                }
             } else {
                 error = fallback.error;
             }
