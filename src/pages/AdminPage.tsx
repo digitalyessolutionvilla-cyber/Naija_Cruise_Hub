@@ -92,6 +92,7 @@ export function AdminPage() {
     const [myRole, setMyRole] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
     const [busy, setBusy] = useState(false);
+    const [autoRefreshPausedNotice, setAutoRefreshPausedNotice] = useState(false);
     const hasShownPartialDataWarning = useRef(false);
     const consecutiveFailedRefreshes = useRef(0);
     const autoRefreshPaused = useRef(false);
@@ -187,11 +188,12 @@ export function AdminPage() {
             } else {
                 consecutiveFailedRefreshes.current = 0;
                 autoRefreshPaused.current = false;
+                setAutoRefreshPausedNotice(false);
             }
 
             if (consecutiveFailedRefreshes.current >= 2 && !autoRefreshPaused.current) {
                 autoRefreshPaused.current = true;
-                toast.warning('Live auto-refresh paused because backend is unavailable. Use "Refresh Now" after migration is applied.');
+                setAutoRefreshPausedNotice(true);
             }
         } finally {
             setBusy(false);
@@ -310,8 +312,13 @@ export function AdminPage() {
                     <div>
                         <h1 className="text-3xl font-bold">CruiseHub CMS</h1>
                         <p className="text-sm text-muted-foreground">
-                            Role: {myRole ?? 'admin'} | Live data updates every 20 seconds
+                            Role: {myRole ?? 'admin'} | {autoRefreshPausedNotice ? 'Auto-refresh paused until backend is available' : 'Live data updates every 20 seconds'}
                         </p>
+                        {autoRefreshPausedNotice && (
+                            <p className="mt-1 text-xs text-amber-500">
+                                Backend is currently unavailable. Use Refresh Now after migration is applied.
+                            </p>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" onClick={() => refreshAll()} disabled={busy}>
