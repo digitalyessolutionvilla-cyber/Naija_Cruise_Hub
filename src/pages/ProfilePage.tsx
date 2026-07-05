@@ -19,7 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
-import { MIN_WITHDRAWAL_AMOUNT } from '@/lib/wallet';
+import { MIN_WITHDRAWAL_AMOUNT, normalizeMinWithdrawalAmount } from '@/lib/wallet';
 import { toast } from 'sonner';
 
 interface Stats { friends: number; rooms: number; posts: number; }
@@ -62,6 +62,7 @@ export function ProfilePage() {
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [wallet, setWallet] = useState({ cash_balance: 0, pending_balance: 0 });
+  const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(MIN_WITHDRAWAL_AMOUNT);
   const [withdrawals, setWithdrawals] = useState<Array<Record<string, any>>>([]);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [accountName, setAccountName] = useState('');
@@ -92,7 +93,11 @@ export function ProfilePage() {
       setWalletLoading(true);
       setWalletError(null);
 
-      const [{ data: walletRow, error: walletRowError }, { data: withdrawalRows, error: withdrawalError }] = await Promise.all([
+      const [
+        { data: walletRow, error: walletRowError },
+        { data: withdrawalRows, error: withdrawalError },
+        { data: settingsRow },
+      ] = await Promise.all([
         sb
           .from('user_wallets')
           .select('cash_balance, pending_balance')
@@ -104,6 +109,11 @@ export function ProfilePage() {
           .eq('user_id', profile.id)
           .order('created_at', { ascending: false })
           .limit(5),
+        sb
+          .from('coin_exchange_settings')
+          .select('min_withdrawal_amount')
+          .eq('id', true)
+          .maybeSingle(),
       ]);
 
       if (walletRowError || withdrawalError) {
@@ -118,6 +128,7 @@ export function ProfilePage() {
         cash_balance: Number(walletRow?.cash_balance ?? 0),
         pending_balance: Number(walletRow?.pending_balance ?? 0),
       });
+      setMinWithdrawalAmount(normalizeMinWithdrawalAmount(settingsRow?.min_withdrawal_amount));
       setWithdrawals(withdrawalRows ?? []);
       setWalletLoading(false);
     };
@@ -169,8 +180,8 @@ export function ProfilePage() {
       return;
     }
 
-    if (amount < MIN_WITHDRAWAL_AMOUNT) {
-      toast.error(`Minimum withdrawal is ₦${MIN_WITHDRAWAL_AMOUNT.toLocaleString()}.`);
+    if (amount < minWithdrawalAmount) {
+      toast.error(`Minimum withdrawal is ₦${minWithdrawalAmount.toLocaleString()}.`);
       return;
     }
 
@@ -341,7 +352,7 @@ export function ProfilePage() {
           <div className="glass rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Wallet & Withdrawals</p>
-              <Badge variant="outline" className="text-xs">Min ₦{MIN_WITHDRAWAL_AMOUNT.toLocaleString()}</Badge>
+              <Badge variant="outline" className="text-xs">Min ₦{minWithdrawalAmount.toLocaleString()}</Badge>
             </div>
 
             {walletLoading ? (
@@ -429,9 +440,9 @@ export function ProfilePage() {
         {/* Stats */}
         <div className="px-4 pb-4">
           <SectionGroup>
-            <SettingsRow icon={<Users className="w-5 h-5" />} label="Friends" value={String(stats.friends)} onClick={() => {}} hasChevron={false} />
-            <SettingsRow icon={<Hash className="w-5 h-5" />} label="Messages Sent" value={String(stats.rooms)} onClick={() => {}} hasChevron={false} />
-            <SettingsRow icon={<Image className="w-5 h-5" />} label="Posts" value={String(stats.posts)} onClick={() => {}} hasChevron={false} />
+            <SettingsRow icon={<Users className="w-5 h-5" />} label="Friends" value={String(stats.friends)} onClick={() => { }} hasChevron={false} />
+            <SettingsRow icon={<Hash className="w-5 h-5" />} label="Messages Sent" value={String(stats.rooms)} onClick={() => { }} hasChevron={false} />
+            <SettingsRow icon={<Image className="w-5 h-5" />} label="Posts" value={String(stats.posts)} onClick={() => { }} hasChevron={false} />
           </SectionGroup>
         </div>
 
@@ -464,7 +475,7 @@ export function ProfilePage() {
         {/* Danger Zone */}
         <div className="px-4 pb-24 lg:pb-8">
           <SectionGroup>
-            <SettingsRow icon={<Shield className="w-5 h-5" />} label="Privacy Settings" onClick={() => {}} />
+            <SettingsRow icon={<Shield className="w-5 h-5" />} label="Privacy Settings" onClick={() => { }} />
             <SettingsRow icon={<LogOut className="w-5 h-5" />} label="Sign Out" danger onClick={handleSignOut} />
           </SectionGroup>
         </div>
