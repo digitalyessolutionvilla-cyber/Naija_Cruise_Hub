@@ -5,6 +5,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useAdmin } from '@/hooks/useAdmin';
 import { isAdminEmail } from '@/lib/admin';
 import { Input } from '@/components/ui/input';
+import { supabase } from '@/integrations/supabase/client';
+import { formatNairaAmount, normalizeCoinToNairaRate } from '@/lib/wallet';
 import { toast } from 'sonner';
 
 type TabKey =
@@ -87,6 +89,7 @@ export function AdminPage() {
     const { user, loading, signOut } = useAuth();
     const admin = useAdmin();
     const navigate = useNavigate();
+    const sb = supabase as any;
 
     const [authReady, setAuthReady] = useState(false);
     const [myRole, setMyRole] = useState<string | null>(null);
@@ -100,6 +103,8 @@ export function AdminPage() {
     const [metrics, setMetrics] = useState<Record<string, number>>({});
     const [charts, setCharts] = useState<Record<string, any>>({});
     const [revenueSummary, setRevenueSummary] = useState<Record<string, number>>({});
+    const [exchangeRate, setExchangeRate] = useState('1');
+    const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
     const [users, setUsers] = useState<Array<Record<string, any>>>([]);
     const [userSearch, setUserSearch] = useState('');
@@ -165,6 +170,18 @@ export function AdminPage() {
         setAds(rows);
     }, [admin]);
 
+    const loadExchangeRate = useCallback(async () => {
+        const { data, error } = await sb
+            .from('coin_exchange_settings')
+            .select('coin_to_naira_rate')
+            .eq('id', true)
+            .maybeSingle();
+
+        if (!error && data) {
+            setExchangeRate(String(normalizeCoinToNairaRate(data.coin_to_naira_rate)));
+        }
+    }, [sb]);
+
     const refreshAll = useCallback(async () => {
         setBusy(true);
         try {
@@ -175,6 +192,7 @@ export function AdminPage() {
                 loadWallets(),
                 loadWithdrawals(),
                 loadAds(),
+                loadExchangeRate(),
             ]);
 
             const rejected = results.filter((result) => result.status === 'rejected');
@@ -198,7 +216,24 @@ export function AdminPage() {
         } finally {
             setBusy(false);
         }
-    }, [loadAds, loadModeration, loadOverview, loadUsers, loadWallets, loadWithdrawals]);
+    }, [loadAds, loadExchangeRate, loadModeration, loadOverview, loadUsers, loadWallets, loadWithdrawals]);
+
+    const handleSaveExchangeRate = useCallback(async () => {
+        const nextRate = normalizeCoinToNairaRate(exchangeRate);
+        setExchangeRateSaving(true);
+        const { error } = await sb
+            .from('coin_exchange_settings')
+            .upsert({ id: true, coin_to_naira_rate: nextRate, updated_by: user.id, updated_at: new Date().toISOString() });
+        setExchangeRateSaving(false);
+
+        if (error) {
+            toast.error(error.message ?? 'Unable to save exchange rate.');
+            return;
+        }
+
+        toast.success('Exchange rate updated.');
+        setExchangeRate(String(nextRate));
+    }, [exchangeRate, sb, user.id]);
 
     useEffect(() => {
         if (loading) return;
@@ -358,6 +393,30 @@ export function AdminPage() {
                                     <p className="mt-1 text-xl font-semibold">{Number(value ?? 0).toLocaleString()}</p>
                                 </div>
                             ))}
+                        </div>
+
+                        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h3 className="font-semibold">Cruise Coin Exchange Rate</h3>
+                                    <p className="text-xs text-muted-foreground">
+                                        1 Cruise Coin = {formatNairaAmount(normalizeCoinToNairaRate(exchangeRate))}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        type="number"
+                                        min="0.0001"
+                                        step="0.0001"
+                                        value={exchangeRate}
+                                        onChange={(e) => setExchangeRate(e.target.value)}
+                                        className="w-40"
+                                    />
+                                    <Button onClick={handleSaveExchangeRate} disabled={exchangeRateSaving}>
+                                        {exchangeRateSaving ? 'Saving...' : 'Save Rate'}
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="grid gap-4 lg:grid-cols-2">

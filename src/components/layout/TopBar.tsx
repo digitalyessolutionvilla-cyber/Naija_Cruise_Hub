@@ -6,6 +6,8 @@ import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { SearchBar } from './SearchBar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { formatNairaAmount, toNairaEquivalent } from '@/lib/wallet';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 
 interface TopBarProps {
   title?: string;
@@ -16,6 +18,7 @@ interface TopBarProps {
 export function TopBar({ title, showSearch = true, className }: TopBarProps) {
   const { profile } = useAuth();
   const { unreadCount } = useNotificationContext();
+  const { rate } = useExchangeRate();
   const navigate = useNavigate();
 
   return (
@@ -42,9 +45,12 @@ export function TopBar({ title, showSearch = true, className }: TopBarProps) {
       <div className="flex items-center gap-2 ml-auto">
         {/* Coins */}
         {profile && (
-          <div className="hidden sm:flex items-center gap-1 bg-neon-gold/10 text-neon-gold border border-neon-gold/20 rounded-full px-3 py-1 text-xs font-semibold">
+          <div className="hidden sm:flex items-center gap-2 bg-neon-gold/10 text-neon-gold border border-neon-gold/20 rounded-full px-3 py-1 text-xs font-semibold">
             <Coins className="w-3.5 h-3.5" />
-            <span>{profile.coins.toLocaleString()}</span>
+            <div className="flex items-center gap-2">
+              <span>{profile.coins.toLocaleString()}</span>
+              <span className="text-[10px] text-muted-foreground">{formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))}</span>
+            </div>
           </div>
         )}
 

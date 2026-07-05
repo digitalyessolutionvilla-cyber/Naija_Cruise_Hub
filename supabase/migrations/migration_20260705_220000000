@@ -1,0 +1,347 @@
+-- Tasks & Rewards backend foundation for CruiseHub
+-- Adds task definitions, claim history, progress RPCs, and claim/reward handling.
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.reward_task_definitions (
+  task_key text primary key,
+  title text not null,
+  description text not null,
+  category text not null,
+  reward_coins numeric(14,2) not null default 0,
+  target_count integer not null default 1 check (target_count > 0),
+  reset_period text not null default 'once' check (reset_period in ('once', 'daily', 'weekly')),
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  metadata jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.user_reward_claims (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  task_key text not null references public.reward_task_definitions(task_key) on delete cascade,
+  scope_key text not null,
+  reward_coins numeric(14,2) not null default 0,
+  claimed_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb,
+  unique (user_id, task_key, scope_key)
+);
+
+create index if not exists idx_user_reward_claims_user_task on public.user_reward_claims(user_id, task_key, claimed_at desc);
+create index if not exists idx_reward_task_definitions_active_sort on public.reward_task_definitions(is_active, sort_order);
+
+insert into public.reward_task_definitions (
+  task_key,
+  title,
+  description,
+  category,
+  reward_coins,
+  target_count,
+  reset_period,
+  sort_order,
+  is_active,
+  metadata
+) values
+  ('daily_login', 'Daily Login Reward', 'Open CruiseHub every day and claim your login bonus.', 'Daily', 10, 1, 'daily', 1, true, '{}'::jsonb),
+  ('create_engaging_posts', 'Create Engaging Posts', 'Publish quality posts that keep the feed active.', 'Content', 50, 3, 'once', 2, true, '{}'::jsonb),
+  ('upload_memes', 'Upload Memes', 'Share funny or viral memes with the community.', 'Content', 40, 3, 'once', 3, true, '{}'::jsonb),
+  ('upload_reels', 'Upload Reels', 'Post short-form video content to earn bonus coins.', 'Content', 50, 3, 'once', 4, true, '{}'::jsonb),
+  ('comment_on_posts', 'Comment on Posts', 'Join conversations with useful or thoughtful comments.', 'Community', 20, 5, 'once', 5, true, '{}'::jsonb),
+  ('like_and_share_posts', 'Like and Share Posts', 'React to posts and share them to support creators.', 'Community', 25, 10, 'once', 6, true, '{}'::jsonb),
+  ('join_chat_rooms', 'Join Chat Rooms', 'Become part of active conversations across the platform.', 'Community', 30, 3, 'once', 7, true, '{}'::jsonb),
+  ('invite_friends', 'Invite Friends', 'Bring new users into CruiseHub and earn referral rewards.', 'Growth', 100, 1, 'once', 8, true, '{}'::jsonb),
+  ('complete_profile', 'Complete Profile', 'Finish your profile to unlock profile completion rewards.', 'Setup', 25, 1, 'once', 9, true, '{}'::jsonb),
+  ('community_events', 'Participate in Community Events', 'Attend or participate in platform community events and campaigns.', 'Events', 75, 1, 'once', 10, true, '{}'::jsonb),
+  ('rewarded_ads', 'View Rewarded Advertisements', 'Watch rewarded ads to earn extra Cruise Coins.', 'Monetization', 15, 3, 'daily', 11, true, '{}'::jsonb),
+  ('daily_challenge', 'Complete Daily Challenge', 'Finish the day’s challenge bundle to claim a bonus reward.', 'Challenges', 75, 3, 'daily', 12, true, '{}'::jsonb),
+  ('weekly_challenge', 'Complete Weekly Challenge', 'Hit the weekly milestone for a bigger Cruise Coin payout.', 'Challenges', 250, 7, 'weekly', 13, true, '{}'::jsonb),
+  ('sponsored_campaigns', 'Platform-Sponsored Campaigns', 'Participate in special campaigns and sponsored platform events.', 'Campaigns', 100, 1, 'once', 14, true, '{}'::jsonb)
+on conflict (task_key) do update set
+  title = excluded.title,
+  description = excluded.description,
+  category = excluded.category,
+  reward_coins = excluded.reward_coins,
+  target_count = excluded.target_count,
+  reset_period = excluded.reset_period,
+  sort_order = excluded.sort_order,
+  is_active = excluded.is_active,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+alter table public.reward_task_definitions enable row level security;
+alter table public.user_reward_claims enable row level security;
+
+drop policy if exists "Public read reward tasks" on public.reward_task_definitions;
+create policy "Public read reward tasks" on public.reward_task_definitions
+  for select using (true);
+
+drop policy if exists "Own reward claims read" on public.user_reward_claims;
+create policy "Own reward claims read" on public.user_reward_claims
+  for select using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+
+create or replace function public.reward_task_scope_key(p_reset_period text)
+returns text
+language sql
+stable
+as $$
+  select case
+    when p_reset_period = 'daily' then to_char(current_date, 'YYYY-MM-DD')
+    when p_reset_period = 'weekly' then to_char(date_trunc('week', now()), 'IYYY-IW')
+    else 'once'
+  end;
+$$;
+
+create or replace function public.reward_task_progress_count(p_task_key text)
+returns integer
+language plpgsql
+security definer
+stable
+as $$
+declare
+  v_count integer := 0;
+begin
+  if auth.uid() is null then
+    return 0;
+  end if;
+
+  case p_task_key
+    when 'daily_login' then
+      select count(*)::int into v_count
+      from public.daily_logins
+      where user_id = auth.uid()
+        and login_date = current_date;
+    when 'create_engaging_posts' then
+      select count(*)::int into v_count
+      from public.posts
+      where user_id = auth.uid();
+    when 'upload_memes' then
+      select count(*)::int into v_count
+      from public.posts
+      where user_id = auth.uid()
+        and type = 'meme';
+    when 'upload_reels' then
+      select count(*)::int into v_count
+      from public.posts
+      where user_id = auth.uid()
+        and type = 'reel';
+    when 'comment_on_posts' then
+      select count(*)::int into v_count
+      from public.post_comments
+      where user_id = auth.uid();
+    when 'like_and_share_posts' then
+      select (
+        coalesce((select count(*) from public.post_likes where user_id = auth.uid()), 0) +
+        coalesce((select count(*) from public.post_shares where user_id = auth.uid()), 0)
+      )::int into v_count;
+    when 'join_chat_rooms' then
+      select count(*)::int into v_count
+      from public.room_members
+      where user_id = auth.uid();
+    when 'invite_friends' then
+      select count(*)::int into v_count
+      from public.friendships
+      where requester_id = auth.uid();
+    when 'complete_profile' then
+      select case when exists (
+        select 1 from public.profiles p
+        where p.id = auth.uid()
+          and coalesce(p.avatar_id, '') <> ''
+          and coalesce(p.bio, '') <> ''
+          and coalesce(p.gender, '') <> ''
+          and coalesce(p.state, '') <> ''
+          and coalesce(array_length(p.interests, 1), 0) > 0
+      ) then 1 else 0 end into v_count;
+    when 'community_events' then
+      select count(*)::int into v_count
+      from public.ad_events
+      where user_id = auth.uid()
+        and event_type in ('community_event', 'event_checkin', 'event_attend');
+    when 'rewarded_ads' then
+      select count(*)::int into v_count
+      from public.ad_events
+      where user_id = auth.uid()
+        and event_type in ('rewarded_ad', 'rewarded_impression', 'rewarded_click');
+    when 'daily_challenge' then
+      select count(*)::int into v_count
+      from public.user_reward_claims
+      where user_id = auth.uid()
+        and claimed_at::date = current_date
+        and task_key not in ('daily_challenge', 'weekly_challenge');
+    when 'weekly_challenge' then
+      select count(*)::int into v_count
+      from public.user_reward_claims
+      where user_id = auth.uid()
+        and claimed_at >= date_trunc('week', now())
+        and task_key not in ('daily_challenge', 'weekly_challenge');
+    when 'sponsored_campaigns' then
+      select count(*)::int into v_count
+      from public.ad_events
+      where user_id = auth.uid()
+        and event_type in ('campaign_join', 'campaign_click', 'campaign_view');
+    else
+      v_count := 0;
+  end case;
+
+  return coalesce(v_count, 0);
+end;
+$$;
+
+create or replace function public.get_reward_tasks()
+returns table (
+  task_key text,
+  title text,
+  description text,
+  category text,
+  reward_coins numeric,
+  target_count integer,
+  current_count integer,
+  claimable boolean,
+  claimed boolean,
+  reset_period text,
+  time_remaining_seconds integer,
+  scope_key text
+)
+language plpgsql
+security definer
+stable
+as $$
+declare
+  v_task record;
+  v_current integer;
+  v_scope text;
+  v_claimed boolean;
+  v_time_remaining integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Unauthorized';
+  end if;
+
+  for v_task in
+    select * from public.reward_task_definitions where is_active = true order by sort_order asc, title asc
+  loop
+    v_current := public.reward_task_progress_count(v_task.task_key);
+    v_scope := public.reward_task_scope_key(v_task.reset_period);
+
+    select exists (
+      select 1 from public.user_reward_claims c
+      where c.user_id = auth.uid()
+        and c.task_key = v_task.task_key
+        and c.scope_key = v_scope
+    ) into v_claimed;
+
+    v_time_remaining := null;
+    if v_task.reset_period = 'daily' then
+      v_time_remaining := extract(epoch from (date_trunc('day', now()) + interval '1 day' - now()))::int;
+    elsif v_task.reset_period = 'weekly' then
+      v_time_remaining := extract(epoch from (date_trunc('week', now()) + interval '1 week' - now()))::int;
+    end if;
+
+    task_key := v_task.task_key;
+    title := v_task.title;
+    description := v_task.description;
+    category := v_task.category;
+    reward_coins := v_task.reward_coins;
+    target_count := v_task.target_count;
+    current_count := least(v_current, v_task.target_count);
+    claimable := v_current >= v_task.target_count and not v_claimed;
+    claimed := v_claimed;
+    reset_period := v_task.reset_period;
+    time_remaining_seconds := v_time_remaining;
+    scope_key := v_scope;
+    return next;
+  end loop;
+end;
+$$;
+
+create or replace function public.claim_reward_task(p_task_key text)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_task public.reward_task_definitions%rowtype;
+  v_current integer;
+  v_scope text;
+  v_claimed boolean;
+  v_ref text;
+begin
+  if auth.uid() is null then
+    raise exception 'Unauthorized';
+  end if;
+
+  select * into v_task
+  from public.reward_task_definitions
+  where task_key = p_task_key
+    and is_active = true;
+
+  if not found then
+    raise exception 'Task not found';
+  end if;
+
+  v_current := public.reward_task_progress_count(p_task_key);
+  v_scope := public.reward_task_scope_key(v_task.reset_period);
+
+  select exists (
+    select 1 from public.user_reward_claims c
+    where c.user_id = auth.uid()
+      and c.task_key = p_task_key
+      and c.scope_key = v_scope
+  ) into v_claimed;
+
+  if v_claimed then
+    return jsonb_build_object('ok', true, 'already_claimed', true);
+  end if;
+
+  if v_current < v_task.target_count then
+    raise exception 'Task is not completed yet';
+  end if;
+
+  insert into public.user_reward_claims(user_id, task_key, scope_key, reward_coins, metadata)
+  values (auth.uid(), p_task_key, v_scope, v_task.reward_coins, coalesce(v_task.metadata, '{}'::jsonb));
+
+  insert into public.user_wallets(user_id, cruise_coin_balance, updated_at)
+  values (auth.uid(), 0, now())
+  on conflict (user_id) do nothing;
+
+  update public.profiles
+  set coins = coalesce(coins, 0) + v_task.reward_coins
+  where id = auth.uid();
+
+  update public.user_wallets
+  set cruise_coin_balance = coalesce(cruise_coin_balance, 0) + v_task.reward_coins,
+      updated_at = now()
+  where user_id = auth.uid();
+
+  v_ref := 'TASK-' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+  insert into public.wallet_transactions(
+    user_id,
+    transaction_type,
+    asset_type,
+    amount,
+    status,
+    description,
+    reference_number,
+    created_by,
+    metadata
+  ) values (
+    auth.uid(),
+    'reward',
+    'coin',
+    v_task.reward_coins,
+    'completed',
+    v_task.title,
+    v_ref,
+    auth.uid(),
+    jsonb_build_object('source', 'task_reward', 'task_key', p_task_key)
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'task_key', p_task_key,
+    'reference_number', v_ref,
+    'reward_coins', v_task.reward_coins
+  );
+end;
+$$;

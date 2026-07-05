@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
+import { formatNairaAmount, toNairaEquivalent } from '@/lib/wallet';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 
 const navItems = [
   { to: '/home', icon: Home, label: 'Home' },
@@ -24,6 +26,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { unreadCount } = useNotificationContext();
+  const { rate } = useExchangeRate();
 
   // Keep online status alive
   useOnlineStatus(profile?.id);
@@ -58,6 +61,9 @@ export function Sidebar() {
             <Coins className="w-3.5 h-3.5" />
             <span>{profile.coins.toLocaleString()} Coins</span>
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            {formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))} equivalent
+          </p>
         </div>
       )}
 

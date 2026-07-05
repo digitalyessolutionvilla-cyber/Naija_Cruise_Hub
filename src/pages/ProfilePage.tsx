@@ -19,7 +19,8 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
-import { MIN_WITHDRAWAL_AMOUNT, normalizeMinWithdrawalAmount } from '@/lib/wallet';
+import { MIN_WITHDRAWAL_AMOUNT, formatNairaAmount, normalizeMinWithdrawalAmount, toNairaEquivalent } from '@/lib/wallet';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 
 interface Stats { friends: number; rooms: number; posts: number; }
@@ -56,6 +57,7 @@ function SectionGroup({ children }: { children: React.ReactNode }) {
 export function ProfilePage() {
   const { profile, signOut, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const { rate } = useExchangeRate();
   const sb = supabase as any;
   const [stats, setStats] = useState<Stats>({ friends: 0, rooms: 0, posts: 0 });
   const [copied, setCopied] = useState(false);
@@ -331,8 +333,11 @@ export function ProfilePage() {
             <div className="flex-1">
               <p className="text-xs text-muted-foreground">Cruise Coins</p>
               <p className="text-xl font-bold text-neon-gold">{profile.coins.toLocaleString()}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {formatNairaAmount(toNairaEquivalent(Number(profile.coins ?? 0), rate))} equivalent
+              </p>
             </div>
-            <Button size="sm" className="gradient-primary text-white border-0 text-xs">
+            <Button size="sm" className="gradient-primary text-white border-0 text-xs" onClick={() => navigate('/tasks')}>
               Get More
             </Button>
           </div>
