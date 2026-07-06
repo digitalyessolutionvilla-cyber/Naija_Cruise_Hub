@@ -55,7 +55,7 @@ const shareOptions = [
       const url = `${window.location.origin}/posts/${postId}`;
       const text = content.slice(0, 100);
       if (navigator.share) {
-        navigator.share({ title: 'CruiseHub Post', text, url }).catch(() => {});
+        navigator.share({ title: 'CruiseHub Post', text, url }).catch(() => { });
       } else {
         navigator.clipboard.writeText(url);
         toast.success('Link copied!');

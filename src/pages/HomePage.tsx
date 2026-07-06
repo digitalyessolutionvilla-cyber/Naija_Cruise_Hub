@@ -145,7 +145,7 @@ export function HomePage() {
         const newPost = payload.new as Post;
         const isMemesTabMatch = activeTab === 'memes'
           ? ['meme', 'story'].includes(String(newPost.type)) &&
-            new Date(String(newPost.created_at)).getTime() >= Date.now() - 24 * 60 * 60 * 1000
+          new Date(String(newPost.created_at)).getTime() >= Date.now() - 24 * 60 * 60 * 1000
           : true;
 
         if (isMemesTabMatch) {

@@ -19,8 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
-import { MIN_WITHDRAWAL_AMOUNT, formatNairaAmount, normalizeMinWithdrawalAmount, toNairaEquivalent } from '@/lib/wallet';
-import { MIN_WITHDRAWAL_AMOUNT, convertFromNaira, formatCurrencyAmount, getCurrencyCode, normalizeMinWithdrawalAmount, toLocalCurrencyEquivalent } from '@/lib/wallet';
+import { MIN_WITHDRAWAL_AMOUNT, convertFromNaira, formatCurrencyAmount, formatNairaAmount, getCurrencyCode, normalizeMinWithdrawalAmount, toLocalCurrencyEquivalent, toNairaEquivalent } from '@/lib/wallet';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 
