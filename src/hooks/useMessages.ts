@@ -56,6 +56,14 @@ export function useMessages(partnerId?: string) {
         error: null,
     }), []);
 
+    const isSchemaMismatchError = useCallback((message?: string | null) => {
+        if (!message) return false;
+        const normalized = message.toLowerCase();
+        return (
+            normalized.includes('column') && normalized.includes('does not exist')
+        ) || normalized.includes('schema cache');
+    }, []);
+
     const capMessages = useCallback((rows: PrivateMessage[]) => {
         if (rows.length <= MAX_RENDER_MESSAGES) return rows;
         return rows.slice(rows.length - MAX_RENDER_MESSAGES);
@@ -446,6 +454,42 @@ export function useMessages(partnerId?: string) {
                 .single();
 
             if (error) {
+                if (isSchemaMismatchError(error.message)) {
+                    const { data: legacyData, error: legacyError } = await sb
+                        .from('private_messages')
+                        .insert({
+                            sender_id: user.id,
+                            receiver_id: receiverId,
+                            content: sticker || trimmed,
+                        })
+                        .select('*')
+                        .single();
+
+                    if (legacyError) {
+                        setMessages((prev) => prev.map((m) => (
+                            m.id === optimisticId ? { ...m, status: 'failed', error: legacyError.message || 'Send failed' } : m
+                        )));
+                        return { error: legacyError as Error, clientId, optimisticId };
+                    }
+
+                    setMessages((prev) => prev.map((m) => (
+                        m.id === optimisticId ? { ...toMessage(legacyData), status: 'sent' } : m
+                    )));
+                    setUploadProgress(100);
+
+                    await awardXP('send_message');
+                    await supabase.from('notifications').insert({
+                        user_id: receiverId,
+                        type: 'message',
+                        title: 'New Message',
+                        body: (sticker || trimmed).slice(0, 80) || 'New message',
+                    });
+
+                    const nextPermission = await getMessagePermission(receiverId);
+                    setMessagePermission(nextPermission);
+                    return { error: null, clientId, optimisticId };
+                }
+
                 setMessages((prev) => prev.map((m) => (
                     m.id === optimisticId ? { ...m, status: 'failed', error: error.message || 'Send failed' } : m
                 )));
@@ -477,7 +521,7 @@ export function useMessages(partnerId?: string) {
         } finally {
             inFlightClientIdsRef.current.delete(clientId);
         }
-    }, [awardXP, capMessages, getMessagePermission, toMessage, uploadAttachments, user]);
+    }, [awardXP, capMessages, getMessagePermission, isSchemaMismatchError, toMessage, uploadAttachments, user]);
 
     const retryFailedMessage = useCallback(async (message: PrivateMessage) => {
         const target = messages.find((m) => m.id === message.id || (message.client_id && m.client_id === message.client_id));
