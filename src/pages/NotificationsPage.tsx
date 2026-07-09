@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TopBar } from '@/components/layout/TopBar';
-import { Bell, Heart, MessageSquare, UserPlus, Zap, Check, Search, Trash2, Volume2, Filter } from 'lucide-react';
+import { Bell, Heart, MessageSquare, UserPlus, Zap, Check, Search, Trash2, Filter, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNotificationContext } from '@/context/NotificationContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import type { NotificationType, Profile, Notification } from '@/types';
+import type { NotificationType, Profile } from '@/types';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 
 interface PendingFriendRequest {
   id: string;
@@ -48,11 +48,6 @@ export function NotificationsPage() {
     markAllRead,
     deleteNotification,
     clearAllNotifications,
-    settings,
-    soundLibrary,
-    previewSound,
-    updateSettings,
-    toggleCategoryMuted,
   } = useNotificationContext();
   const { user } = useAuth();
   const [pendingRequests, setPendingRequests] = useState<PendingFriendRequest[]>([]);
@@ -194,66 +189,11 @@ export function NotificationsPage() {
             <Button size="sm" variant="outline" onClick={clearAllNotifications}>
               <Trash2 className="w-3 h-3 mr-1" /> Clear all
             </Button>
-          </div>
-        </div>
-
-        <div className="glass rounded-2xl p-4 space-y-3">
-          <p className="text-sm font-semibold">Notification Settings</p>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <label className="flex items-center justify-between gap-2">Sound
-              <Switch checked={settings.soundEnabled} onCheckedChange={(v) => void updateSettings({ soundEnabled: v })} />
-            </label>
-            <label className="flex items-center justify-between gap-2">Vibration
-              <Switch checked={settings.vibrationEnabled} onCheckedChange={(v) => void updateSettings({ vibrationEnabled: v })} />
-            </label>
-            <label className="flex items-center justify-between gap-2">Push
-              <Switch checked={settings.pushEnabled} onCheckedChange={(v) => void updateSettings({ pushEnabled: v })} />
-            </label>
-            <label className="flex items-center justify-between gap-2">Quiet Hours
-              <Switch checked={settings.quietHoursEnabled} onCheckedChange={(v) => void updateSettings({ quietHoursEnabled: v })} />
-            </label>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Sound</label>
-            <div className="flex gap-2">
-              <select
-                className="flex-1 h-10 rounded-md border border-border bg-muted/40 px-3 text-sm"
-                value={settings.selectedSound}
-                onChange={(e) => void updateSettings({ selectedSound: e.target.value })}
-              >
-                {soundLibrary.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <Button variant="outline" onClick={() => void previewSound(settings.selectedSound)}>
-                <Volume2 className="w-4 h-4 mr-1" /> Preview
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Mute Categories</label>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {[
-                ['messages', 'Messages'],
-                ['chat_rooms', 'Chat Rooms'],
-                ['posts', 'Posts'],
-                ['likes', 'Likes'],
-                ['comments', 'Comments'],
-                ['friend_requests', 'Friend Requests'],
-                ['wallet', 'Wallet'],
-                ['promotions', 'Promotions'],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center justify-between gap-2 bg-muted/30 rounded-md px-2 py-1.5">
-                  <span>{label}</span>
-                  <Switch
-                    checked={Boolean(settings.mutedCategories[key as keyof typeof settings.mutedCategories])}
-                    onCheckedChange={(v) => void toggleCategoryMuted(key as any, v)}
-                  />
-                </label>
-              ))}
-            </div>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/notification-settings">
+                <Settings className="w-3 h-3 mr-1" /> Settings
+              </Link>
+            </Button>
           </div>
         </div>
 

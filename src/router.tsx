@@ -10,6 +10,7 @@ import { UserProfilePage } from "./pages/UserProfilePage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
 import { TasksRewardsPage } from "./pages/TasksRewardsPage";
 import { WalletPage } from "./pages/WalletPage";
 import { AdminPage } from "./pages/AdminPage";
@@ -42,6 +43,8 @@ function AppTitleManager() {
       pageTitle = `Messages | ${APP_NAME}`;
     } else if (matchPath({ path: '/notifications', end: true }, location.pathname)) {
       pageTitle = `Notifications | ${APP_NAME}`;
+    } else if (matchPath({ path: '/notification-settings', end: true }, location.pathname)) {
+      pageTitle = `Notification Settings | ${APP_NAME}`;
     } else if (matchPath({ path: '/tasks', end: true }, location.pathname)) {
       pageTitle = `Tasks | ${APP_NAME}`;
     } else if (matchPath({ path: '/admin', end: true }, location.pathname)) {
@@ -73,6 +76,7 @@ export const routers = [
       { path: "messages", name: "messages", element: <MessagesPage /> },
       { path: "explore", name: "explore", element: <ExplorePage /> },
       { path: "notifications", name: "notifications", element: <NotificationsPage /> },
+      { path: "notification-settings", name: "notification-settings", element: <NotificationSettingsPage /> },
       { path: "admin", name: "admin", element: <AdminPage /> },
       /* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */
       { path: "*", name: "404", element: <NotFound /> },

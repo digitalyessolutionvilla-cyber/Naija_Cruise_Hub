@@ -1,0 +1,58 @@
+create or replace function public.sync_chat_room_member_count(target_room_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.chat_rooms
+  set member_count = (
+    select count(*)::int
+    from public.room_members rm
+    where rm.room_id = target_room_id
+  )
+  where id = target_room_id;
+end;
+$$;
+
+create or replace function public.trg_sync_chat_room_member_count()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' then
+    perform public.sync_chat_room_member_count(old.room_id);
+    return old;
+  end if;
+
+  if tg_op = 'UPDATE' and old.room_id is distinct from new.room_id then
+    perform public.sync_chat_room_member_count(old.room_id);
+  end if;
+
+  perform public.sync_chat_room_member_count(new.room_id);
+  return new;
+end;
+$$;
+
+drop trigger if exists room_members_sync_chat_room_member_count_ins on public.room_members;
+drop trigger if exists room_members_sync_chat_room_member_count_upd on public.room_members;
+drop trigger if exists room_members_sync_chat_room_member_count_del on public.room_members;
+
+create trigger room_members_sync_chat_room_member_count_ins
+after insert on public.room_members
+for each row execute function public.trg_sync_chat_room_member_count();
+
+create trigger room_members_sync_chat_room_member_count_upd
+after update of room_id on public.room_members
+for each row execute function public.trg_sync_chat_room_member_count();
+
+create trigger room_members_sync_chat_room_member_count_del
+after delete on public.room_members
+for each row execute function public.trg_sync_chat_room_member_count();
+
+update public.chat_rooms cr
+set member_count = (
+  select count(*)::int from public.room_members rm where rm.room_id = cr.id
+);
