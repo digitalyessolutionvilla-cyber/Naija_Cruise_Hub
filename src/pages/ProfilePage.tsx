@@ -298,8 +298,22 @@ export function ProfilePage() {
           <div className="grid grid-cols-3 gap-3">
             {[
               { icon: MessageSquare, label: 'Message', action: () => navigate('/messages') },
-              { icon: Phone, label: 'Voice', action: () => toast.info('Voice calls coming soon!') },
-              { icon: Video, label: 'Video', action: () => toast.info('Video calls coming soon!') },
+              {
+                icon: Phone,
+                label: 'Voice',
+                action: () => {
+                  navigate('/messages');
+                  toast.info('Choose a friend from your list to start a voice call.');
+                },
+              },
+              {
+                icon: Video,
+                label: 'Video',
+                action: () => {
+                  navigate('/messages');
+                  toast.info('Choose a friend from your list to start a video call.');
+                },
+              },
             ].map(({ icon: Icon, label, action }) => (
               <button
                 key={label}
