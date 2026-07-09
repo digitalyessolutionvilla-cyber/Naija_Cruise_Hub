@@ -1,33 +1,32 @@
-# Welcome to your Enter project
+# Welcome to 9JA Cruse Hub
 
-[![Built with enter.pro](https://img.shields.io/badge/Build%20with-Enter.pro-FC5776?style=for-the-badge&labelColor=1F1F1F)](https://enter.pro)
+[![9JA Cruse Hub](https://img.shields.io/badge/9JA%20Cruse%20Hub-0B1530?style=for-the-badge)](#)
 
-*Automatically synced with your [enter.pro](https://enter.pro) workspace* 
+*Official 9JA Cruse Hub application repository*
 
 ---
 
 ## Overview
 
-This repository is automatically linked to your app on [enter.pro](https://enter.pro).  
-Every change you make in Enter will be reflected here — and any updates you push to this repo will sync back seamlessly.  
+This repository powers the 9JA Cruse Hub web app.  
+Changes are reflected when the app is deployed.
 
-Enter.pro helps you **build, edit, and deploy full-stack web apps by prompting**.  
-Just describe what you want — Enter turns ideas into production-ready code.
+9JA Cruse Hub is a Nigerian social platform for cruise, chat, communities, and rewards.
 
 ---
 
 ## Project URLs
 
-**Live app:** https://<project-id>-latest.preview.enter.pro  
-**Edit & build in Enter:** https://enter.pro/project/<project-id>
+**Live app:** https://<your-domain>  
+**Edit & build:** your local workspace or hosting platform
 
 
 ---
 
 ## Continue building
 
-Keep developing your app directly in [Enter.pro](https://enter.pro/project/<project-id>).  
-Prompt new features, refine the UI, or connect integrations — all changes are versioned and synced automatically to GitHub.
+Keep developing the app directly in this repository.  
+Prompt new features, refine the UI, or connect integrations — all changes are versioned in Git.
 
 ---
 
@@ -49,7 +48,7 @@ pnpm install
 pnpm dev
 ```
 
-Push your commits — Enter.pro will automatically detect and sync your latest changes.
+Push your commits — your deployment pipeline will pick up the latest changes.
 
 ---
 
@@ -142,10 +141,10 @@ This project uses:
 
 ## Deployment
 
-To deploy, open your Enter.pro project and click "Publish"
+To deploy, use your hosting platform or CI/CD pipeline.
 
 Your app will automatically build and go live at your production URL.
 
 ---
 
-✨ Keep prompting, keep building — Enter.pro handles the rest.
+✨ Keep building, keep shipping — 9JA Cruse Hub handles the rest.

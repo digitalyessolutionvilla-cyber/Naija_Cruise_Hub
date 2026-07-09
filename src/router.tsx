@@ -15,7 +15,7 @@ import { WalletPage } from "./pages/WalletPage";
 import { AdminPage } from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
 
-const APP_NAME = '9JA Cruise Hub';
+const APP_NAME = '9JA Cruse Hub';
 
 function AppTitleManager() {
   const location = useLocation();

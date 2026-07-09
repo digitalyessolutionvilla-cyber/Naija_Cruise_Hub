@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, Zap, Coins } from 'lucide-react';
+import { Bell, Coins } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationContext } from '@/context/NotificationContext';
 import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
+import { AppLogo } from '@/components/branding/AppLogo';
 import { SearchBar } from './SearchBar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -30,10 +31,8 @@ export function TopBar({ title, showSearch = true, className }: TopBarProps) {
       <div className="flex items-center gap-2 flex-shrink-0">
         {!title && (
           <>
-            <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center lg:hidden">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-base font-bold gradient-text lg:hidden">CruiseHub</span>
+            <AppLogo compact className="h-7 w-7 lg:hidden" />
+            <AppLogo className="hidden lg:block h-7" />
           </>
         )}
         {title && <h1 className="text-base font-bold">{title}</h1>}

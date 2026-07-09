@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Zap, Users, Hash, Shield, Gamepad2, Sparkles, ArrowRight, ChevronRight, Star } from 'lucide-react';
+import { AppLogo } from '@/components/branding/AppLogo';
 import { Button } from '@/components/ui/button';
 
 const features = [
@@ -66,10 +67,7 @@ export function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 glass-strong border-b border-border">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-lg font-bold gradient-text">CruiseHub</span>
+            <AppLogo className="h-8" />
           </div>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
@@ -223,12 +221,12 @@ export function LandingPage() {
                 className="glass rounded-2xl p-5 space-y-3"
               >
                 <div className="flex items-center gap-2">
-                  {[1,2,3,4,5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-neon-gold text-neon-gold" />)}
+                  {[1, 2, 3, 4, 5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-neon-gold text-neon-gold" />)}
                 </div>
                 <p className="text-sm text-foreground italic">"{t.text}"</p>
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xs">
-                    {['😎','💖','⚡'][i]}
+                    {['😎', '💖', '⚡'][i]}
                   </div>
                   <span className="text-xs text-muted-foreground font-medium">@{t.username}</span>
                 </div>
@@ -267,8 +265,7 @@ export function LandingPage() {
       <footer className="border-t border-border py-8 px-4">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-primary" />
-            <span className="font-bold gradient-text">CruiseHub</span>
+            <AppLogo className="h-7" />
           </div>
           <p className="text-sm text-muted-foreground">© 2025 CruiseHub. Made with love for Nigeria 🇳🇬</p>
           <div className="flex gap-4 text-sm text-muted-foreground">

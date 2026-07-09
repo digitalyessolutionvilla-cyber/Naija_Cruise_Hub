@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Zap, Eye, EyeOff, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { AppLogo } from '@/components/branding/AppLogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -180,10 +181,7 @@ export function AuthPage() {
       <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-glow-purple">
-            <Zap className="w-6 h-6 text-white" />
-          </div>
-          <span className="text-2xl font-bold gradient-text">CruiseHub</span>
+          <AppLogo className="h-12" />
         </div>
 
         <div className="glass rounded-3xl p-6 neon-border shadow-elegant">

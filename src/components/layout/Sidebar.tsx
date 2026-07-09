@@ -1,10 +1,11 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, Users, Bell, User, Zap, Coins, LogOut, Moon, Sun, Hash, Wallet } from 'lucide-react';
+import { Home, MessageSquare, Users, Bell, User, Coins, LogOut, Moon, Sun, Hash, Wallet } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationContext } from '@/context/NotificationContext';
 import { useOnlineStatus } from '@/hooks/useRealtime';
 import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { XPBar, LevelBadge } from '@/components/profile/XPBar';
+import { AppLogo } from '@/components/branding/AppLogo';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -41,10 +42,7 @@ export function Sidebar() {
     <aside className="hidden lg:flex flex-col w-64 h-screen sticky top-0 border-r border-border bg-sidebar p-4 gap-4 overflow-y-auto">
       {/* Logo */}
       <div className="flex items-center gap-2 px-2 py-2">
-        <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center shadow-glow-purple">
-          <Zap className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-xl font-bold gradient-text">CruiseHub</span>
+        <AppLogo className="h-9" />
       </div>
 
       {/* Profile snippet */}
