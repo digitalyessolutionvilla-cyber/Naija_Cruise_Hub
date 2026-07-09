@@ -1,0 +1,34 @@
+-- Enable app-generated notifications from authenticated users
+create policy "Auth users create notifications"
+on public.notifications
+for insert
+with check (auth.uid() is not null);
+
+-- Call history table
+create table if not exists public.call_logs (
+  id uuid primary key default gen_random_uuid(),
+  caller_id uuid not null references public.profiles(id) on delete cascade,
+  callee_id uuid not null references public.profiles(id) on delete cascade,
+  call_type text not null check (call_type in ('voice', 'video')),
+  status text not null check (status in ('completed', 'missed', 'declined', 'canceled', 'failed')),
+  duration_seconds integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table public.call_logs enable row level security;
+
+create policy "Users read own call logs"
+on public.call_logs
+for select
+using (auth.uid() = caller_id or auth.uid() = callee_id);
+
+create policy "Users create own call logs"
+on public.call_logs
+for insert
+with check (auth.uid() = caller_id or auth.uid() = callee_id);
+
+create index if not exists idx_call_logs_caller_created_at
+on public.call_logs (caller_id, created_at desc);
+
+create index if not exists idx_call_logs_callee_created_at
+on public.call_logs (callee_id, created_at desc);

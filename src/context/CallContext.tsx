@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Camera, CameraOff, Maximize2, Mic, MicOff, Minimize2, Phone, PhoneOff, Shield, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 
@@ -11,6 +12,7 @@ type CallStatus = 'idle' | 'calling' | 'incoming' | 'connecting' | 'active';
 type IncomingCall = {
     fromUserId: string;
     fromUsername: string;
+    fromAvatarId?: string;
     callType: CallType;
     roomId: string;
 };
@@ -27,6 +29,7 @@ type CallEvent = {
     kind: 'invite' | 'invite-accepted' | 'invite-declined' | 'offer' | 'answer' | 'ice-candidate' | 'hangup';
     fromUserId: string;
     fromUsername?: string;
+    fromAvatarId?: string;
     toUserId: string;
     roomId: string;
     callType?: CallType;
@@ -70,6 +73,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraEnabled, setIsCameraEnabled] = useState(true);
     const [isOverlayMinimized, setIsOverlayMinimized] = useState(false);
+    const [minimizedPosition, setMinimizedPosition] = useState({ x: 16, y: 96 });
 
     const signalingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -77,8 +81,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const callStatusRef = useRef<CallStatus>('idle');
     const activeCallRef = useRef<ActiveCall | null>(null);
+    const incomingCallRef = useRef<IncomingCall | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const ringtoneIntervalRef = useRef<number | null>(null);
+    const timeoutRef = useRef<number | null>(null);
+    const dragOffsetRef = useRef({ x: 0, y: 0 });
+    const isDraggingRef = useRef(false);
 
     useEffect(() => {
         callStatusRef.current = callStatus;
@@ -87,6 +95,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
+
+    useEffect(() => {
+        incomingCallRef.current = incomingCall;
+    }, [incomingCall]);
 
     const stopLocalTracks = useCallback(() => {
         setLocalStream((prev) => {
@@ -116,8 +128,51 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         setIsMuted(false);
         setIsCameraEnabled(true);
         setIsOverlayMinimized(false);
+        setMinimizedPosition({ x: 16, y: 96 });
         setCallStatus('idle');
     }, [cleanupPeerConnection, stopLocalTracks]);
+
+    const clearCallTimeout = useCallback(() => {
+        if (timeoutRef.current !== null) {
+            window.clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+    }, []);
+
+    const createNotification = useCallback(async (targetUserId: string, title: string, body: string) => {
+        try {
+            const sb = supabase as any;
+            await sb.from('notifications').insert({
+                user_id: targetUserId,
+                type: 'system',
+                title,
+                body,
+            });
+        } catch (error) {
+            console.error('Unable to create notification', error);
+        }
+    }, []);
+
+    const recordCallLog = useCallback(async (params: {
+        callerId: string;
+        calleeId: string;
+        callType: CallType;
+        status: 'completed' | 'missed' | 'declined' | 'canceled' | 'failed';
+        durationSeconds: number;
+    }) => {
+        try {
+            const sb = supabase as any;
+            await sb.from('call_logs').insert({
+                caller_id: params.callerId,
+                callee_id: params.calleeId,
+                call_type: params.callType,
+                status: params.status,
+                duration_seconds: params.durationSeconds,
+            });
+        } catch (error) {
+            console.error('Unable to save call log', error);
+        }
+    }, []);
 
     const stopRingtone = useCallback(() => {
         if (ringtoneIntervalRef.current !== null) {
@@ -284,6 +339,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             kind: 'invite',
             fromUserId: user.id,
             fromUsername: profile?.username || 'User',
+            fromAvatarId: profile?.avatar_id || 'av1',
             toUserId: peerId,
             roomId,
             callType,
@@ -347,6 +403,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             return;
         }
 
+        const durationSeconds = callStartedAt ? Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)) : 0;
+        const status = callStatusRef.current === 'active' ? 'completed' : 'canceled';
+
         await sendSignal({
             kind: 'hangup',
             fromUserId: user.id,
@@ -354,8 +413,37 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             roomId: activeCall.roomId,
         });
 
+        await recordCallLog({
+            callerId: activeCall.isCaller ? user.id : activeCall.peerId,
+            calleeId: activeCall.isCaller ? activeCall.peerId : user.id,
+            callType: activeCall.callType,
+            status,
+            durationSeconds,
+        });
+
         resetCallState();
-    }, [activeCall, resetCallState, sendSignal, user]);
+    }, [activeCall, callStartedAt, recordCallLog, resetCallState, sendSignal, user]);
+
+    const startDrag = useCallback((clientX: number, clientY: number) => {
+        dragOffsetRef.current = {
+            x: clientX - minimizedPosition.x,
+            y: clientY - minimizedPosition.y,
+        };
+        isDraggingRef.current = true;
+    }, [minimizedPosition.x, minimizedPosition.y]);
+
+    const onDrag = useCallback((clientX: number, clientY: number) => {
+        if (!isDraggingRef.current) return;
+        const widgetWidth = 320;
+        const widgetHeight = 78;
+        const nextX = Math.min(Math.max(8, clientX - dragOffsetRef.current.x), window.innerWidth - widgetWidth - 8);
+        const nextY = Math.min(Math.max(8, clientY - dragOffsetRef.current.y), window.innerHeight - widgetHeight - 8);
+        setMinimizedPosition({ x: nextX, y: nextY });
+    }, []);
+
+    const stopDrag = useCallback(() => {
+        isDraggingRef.current = false;
+    }, []);
 
     const toggleMute = useCallback(() => {
         const nextMuted = !isMuted;
@@ -400,6 +488,55 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }, [callStatus, startIncomingRingtone, startOutgoingRingback, stopRingtone]);
 
     useEffect(() => {
+        clearCallTimeout();
+        if (callStatus !== 'calling' && callStatus !== 'incoming') return;
+
+        timeoutRef.current = window.setTimeout(() => {
+            const currentActiveCall = activeCallRef.current;
+            const currentIncoming = incomingCall;
+
+            if (callStatusRef.current === 'calling' && currentActiveCall && user) {
+                void sendSignal({
+                    kind: 'hangup',
+                    fromUserId: user.id,
+                    toUserId: currentActiveCall.peerId,
+                    roomId: currentActiveCall.roomId,
+                    reason: 'no_answer',
+                });
+                void createNotification(
+                    currentActiveCall.peerId,
+                    'Missed Call',
+                    `You missed a ${currentActiveCall.callType} call from @${profile?.username || 'User'}.`
+                );
+                toast.error('No answer from user.');
+                resetCallState();
+                return;
+            }
+
+            if (callStatusRef.current === 'incoming' && currentIncoming && user) {
+                void sendSignal({
+                    kind: 'invite-declined',
+                    fromUserId: user.id,
+                    toUserId: currentIncoming.fromUserId,
+                    roomId: currentIncoming.roomId,
+                    reason: 'missed',
+                });
+                void recordCallLog({
+                    callerId: currentIncoming.fromUserId,
+                    calleeId: user.id,
+                    callType: currentIncoming.callType,
+                    status: 'missed',
+                    durationSeconds: 0,
+                });
+                setIncomingCall(null);
+                setCallStatus('idle');
+            }
+        }, 45000);
+
+        return () => clearCallTimeout();
+    }, [callStatus, clearCallTimeout, createNotification, incomingCall, profile?.username, recordCallLog, resetCallState, sendSignal, user]);
+
+    useEffect(() => {
         if (!activeCall || callStatus === 'idle') return;
 
         const handleContextMenu = (event: MouseEvent) => {
@@ -436,12 +573,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         return () => {
+            clearCallTimeout();
             stopRingtone();
             if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
                 void audioContextRef.current.close();
             }
         };
-    }, [stopRingtone]);
+    }, [clearCallTimeout, stopRingtone]);
+
+    useEffect(() => {
+        const onMouseMove = (event: MouseEvent) => {
+            onDrag(event.clientX, event.clientY);
+        };
+        const onTouchMove = (event: TouchEvent) => {
+            const touch = event.touches[0];
+            if (!touch) return;
+            onDrag(touch.clientX, touch.clientY);
+        };
+        const onMouseUp = () => stopDrag();
+        const onTouchEnd = () => stopDrag();
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('touchmove', onTouchMove, { passive: true });
+        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('touchend', onTouchEnd);
+
+        return () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('touchmove', onTouchMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            window.removeEventListener('touchend', onTouchEnd);
+        };
+    }, [onDrag, stopDrag]);
 
     useEffect(() => {
         if (!localVideoRef.current) return;
@@ -484,6 +647,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         setIncomingCall({
                             fromUserId: event.fromUserId,
                             fromUsername: event.fromUsername || 'User',
+                            fromAvatarId: event.fromAvatarId || 'av1',
                             callType: event.callType || 'voice',
                             roomId: event.roomId,
                         });
@@ -518,6 +682,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                     }
                     case 'invite-declined': {
                         if (!currentActiveCall || currentActiveCall.roomId !== event.roomId) return;
+                        void recordCallLog({
+                            callerId: currentActiveCall.isCaller ? user.id : currentActiveCall.peerId,
+                            calleeId: currentActiveCall.isCaller ? currentActiveCall.peerId : user.id,
+                            callType: currentActiveCall.callType,
+                            status: event.reason === 'missed' ? 'missed' : 'declined',
+                            durationSeconds: 0,
+                        });
                         toast.error(event.reason === 'busy' ? 'User is busy right now.' : 'Call declined.');
                         resetCallState();
                         break;
@@ -553,8 +724,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         break;
                     }
                     case 'hangup': {
-                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId) return;
-                        toast.message('Call ended');
+                        if (currentActiveCall && currentActiveCall.roomId === event.roomId) {
+                            const durationSeconds = callStartedAt ? Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)) : 0;
+                            void recordCallLog({
+                                callerId: currentActiveCall.isCaller ? user.id : currentActiveCall.peerId,
+                                calleeId: currentActiveCall.isCaller ? currentActiveCall.peerId : user.id,
+                                callType: currentActiveCall.callType,
+                                status: durationSeconds > 0 ? 'completed' : 'canceled',
+                                durationSeconds,
+                            });
+                            toast.message('Call ended');
+                            resetCallState();
+                            break;
+                        }
+
+                        const currentIncoming = incomingCallRef.current;
+                        if (currentIncoming && currentIncoming.roomId === event.roomId) {
+                            setIncomingCall(null);
+                            setCallStatus('idle');
+                            toast.message('Call ended');
+                            break;
+                        }
+
                         resetCallState();
                         break;
                     }
@@ -573,7 +764,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             signalingChannelRef.current = null;
             resetCallState();
         };
-    }, [attachStreamToPeer, createPeerConnection, ensureLocalStream, isAcceptedFriend, resetCallState, sendSignal, user]);
+    }, [attachStreamToPeer, callStartedAt, createPeerConnection, ensureLocalStream, isAcceptedFriend, recordCallLog, resetCallState, sendSignal, user]);
 
     const value = useMemo<CallContextType>(() => ({
         callStatus,
@@ -598,25 +789,71 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             {children}
 
             {incomingCall && (
-                <div className="fixed right-4 bottom-20 lg:bottom-6 z-50 w-[320px] glass-strong rounded-2xl border border-border p-4 shadow-elegant">
-                    <p className="text-sm font-semibold">Incoming {incomingCall.callType} call</p>
-                    <p className="text-xs text-muted-foreground mt-1">@{incomingCall.fromUsername}</p>
-                    <div className="mt-3 flex gap-2">
-                        <Button className="flex-1 bg-neon-green text-white" onClick={() => void acceptIncomingCall()}>
-                            <Phone className="w-4 h-4 mr-1" /> Accept
-                        </Button>
-                        <Button variant="destructive" className="flex-1" onClick={() => void declineIncomingCall()}>
-                            <PhoneOff className="w-4 h-4 mr-1" /> Decline
-                        </Button>
+                <div className="fixed inset-0 z-50 bg-black text-white">
+                    <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
+                    <div className="relative h-full flex flex-col items-center justify-center px-6 text-center">
+                        <AvatarDisplay avatarId={incomingCall.fromAvatarId || 'av1'} size="xl" isOnline={true} />
+                        <p className="mt-5 text-2xl font-semibold">@{incomingCall.fromUsername}</p>
+                        <p className="text-sm text-white/80 mt-1">Incoming {incomingCall.callType} call...</p>
+                        <p className="text-xs text-white/60 mt-2">Ringing...</p>
+
+                        <div className="mt-10 flex gap-3 w-full max-w-xs">
+                            <Button className="flex-1 bg-neon-green text-white" onClick={() => void acceptIncomingCall()}>
+                                <Phone className="w-4 h-4 mr-1" /> Accept
+                            </Button>
+                            <Button variant="destructive" className="flex-1" onClick={() => void declineIncomingCall()}>
+                                <PhoneOff className="w-4 h-4 mr-1" /> Decline
+                            </Button>
+                        </div>
+
+                        <div className="mt-3 flex gap-2 w-full max-w-xs">
+                            <Button
+                                variant="outline"
+                                className="flex-1 border-white/30 text-white hover:bg-white/10"
+                                onClick={() => {
+                                    toast.info('We will remind you shortly.');
+                                    setTimeout(() => {
+                                        toast.message(`Reminder: @${incomingCall.fromUsername} called you.`);
+                                    }, 60000);
+                                    void declineIncomingCall();
+                                }}
+                            >
+                                Remind Me
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="flex-1 border-white/30 text-white hover:bg-white/10"
+                                onClick={() => {
+                                    const targetId = incomingCall.fromUserId;
+                                    const targetName = incomingCall.fromUsername;
+                                    void declineIncomingCall().then(() => {
+                                        void startCall(targetId, targetName, incomingCall.callType);
+                                    });
+                                }}
+                            >
+                                Call Back
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
 
             {activeCall && callStatus !== 'idle' && (
                 isOverlayMinimized ? (
-                    <div className="fixed right-4 bottom-20 lg:bottom-6 z-50 w-[320px] glass-strong rounded-2xl border border-border p-3 shadow-elegant">
+                    <div
+                        className="fixed z-50 w-[320px] glass-strong rounded-2xl border border-border p-3 shadow-elegant"
+                        style={{ left: minimizedPosition.x, top: minimizedPosition.y }}
+                    >
                         <div className="flex items-center justify-between gap-2">
-                            <div>
+                            <div
+                                className="flex-1 cursor-move"
+                                onMouseDown={(event) => startDrag(event.clientX, event.clientY)}
+                                onTouchStart={(event) => {
+                                    const touch = event.touches[0];
+                                    if (!touch) return;
+                                    startDrag(touch.clientX, touch.clientY);
+                                }}
+                            >
                                 <p className="text-sm font-semibold truncate">@{activeCall.peerUsername}</p>
                                 <p className="text-xs text-muted-foreground">
                                     {callStatus === 'calling'
@@ -627,20 +864,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                                 </p>
                             </div>
                             <div className="flex items-center gap-1">
-                                <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8"
-                                    onClick={toggleMute}
-                                >
+                                {activeCall.callType === 'video' && (
+                                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={toggleCamera}>
+                                        {isCameraEnabled ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
+                                    </Button>
+                                )}
+                                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={toggleMute}>
                                     {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                                 </Button>
-                                <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8"
-                                    onClick={() => setIsOverlayMinimized(false)}
-                                >
+                                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setIsOverlayMinimized(false)}>
                                     <Maximize2 className="w-4 h-4" />
                                 </Button>
                                 <Button
@@ -658,12 +890,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         {activeCall.callType === 'video' ? (
                             <div className="absolute inset-0">
                                 {remoteStream ? (
-                                    <video
-                                        ref={remoteVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        className="w-full h-full object-cover"
-                                    />
+                                    <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
                                 )}
@@ -701,13 +928,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         {activeCall.callType === 'video' && (
                             <div className="absolute top-16 right-4 w-28 h-40 rounded-2xl overflow-hidden border border-white/25 bg-black/40 shadow-lg">
                                 {localStream && isCameraEnabled ? (
-                                    <video
-                                        ref={localVideoRef}
-                                        autoPlay
-                                        muted
-                                        playsInline
-                                        className="w-full h-full object-cover"
-                                    />
+                                    <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full flex items-center justify-center bg-black/70">
                                         <CameraOff className="w-5 h-5 text-white/80" />
