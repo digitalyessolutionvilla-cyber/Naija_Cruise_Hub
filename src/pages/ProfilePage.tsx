@@ -15,7 +15,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
+import { useCall } from '@/context/CallContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AVATARS, getLevelNumber } from '@/types';
 import { cn } from '@/lib/utils';
@@ -24,6 +27,13 @@ import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { toast } from 'sonner';
 
 interface Stats { friends: number; rooms: number; posts: number; }
+
+interface FriendListItem {
+  id: string;
+  username: string;
+  avatar_id: string;
+  is_online: boolean;
+}
 
 interface SettingsRowProps {
   icon: React.ReactNode;
@@ -56,6 +66,7 @@ function SectionGroup({ children }: { children: React.ReactNode }) {
 
 export function ProfilePage() {
   const { profile, signOut, updateProfile } = useAuth();
+  const { startCall } = useCall();
   const navigate = useNavigate();
   const { rate } = useExchangeRate();
   const sb = supabase as any;
@@ -70,6 +81,13 @@ export function ProfilePage() {
   const [accountNumber, setAccountNumber] = useState('');
   const [bankName, setBankName] = useState('');
   const [submittingWithdrawal, setSubmittingWithdrawal] = useState(false);
+  const [showFriendsDialog, setShowFriendsDialog] = useState(false);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsList, setFriendsList] = useState<FriendListItem[]>([]);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editBio, setEditBio] = useState('');
+  const [editState, setEditState] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -157,6 +175,64 @@ export function ProfilePage() {
     navigate('/');
   };
 
+  const loadFriends = async () => {
+    setFriendsLoading(true);
+
+    const { data: relationships } = await supabase
+      .from('friendships')
+      .select('requester_id, addressee_id')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${profile.id},addressee_id.eq.${profile.id}`);
+
+    const friendIds = (relationships || []).map((row) =>
+      row.requester_id === profile.id ? row.addressee_id : row.requester_id
+    );
+
+    if (friendIds.length === 0) {
+      setFriendsList([]);
+      setFriendsLoading(false);
+      return;
+    }
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_id, is_online')
+      .in('id', friendIds)
+      .order('is_online', { ascending: false })
+      .order('username', { ascending: true });
+
+    setFriendsList((profiles || []) as FriendListItem[]);
+    setFriendsLoading(false);
+  };
+
+  const openFriendsDialog = () => {
+    setShowFriendsDialog(true);
+    void loadFriends();
+  };
+
+  const openEditDialog = () => {
+    setEditBio(profile.bio || '');
+    setEditState(profile.state || '');
+    setShowEditDialog(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    const { error } = await updateProfile({
+      bio: editBio.trim(),
+      state: editState.trim() || null,
+    });
+    setSavingProfile(false);
+
+    if (error) {
+      toast.error(error.message || 'Unable to update profile.');
+      return;
+    }
+
+    toast.success('Profile updated successfully.');
+    setShowEditDialog(false);
+  };
+
   const handleCopyId = () => {
     navigator.clipboard.writeText(`@${profile.username}`);
     setCopied(true);
@@ -241,7 +317,6 @@ export function ProfilePage() {
   return (
     <AppLayout>
       <div className="max-w-2xl mx-auto w-full">
-        toast.error(`Minimum withdrawal is ${formatCurrencyAmount(convertFromNaira(minWithdrawalAmount, currencyCountry), currencyCountry)}.`);
         <div className="relative">
           <button
             onClick={() => navigate(-1)}
@@ -249,7 +324,10 @@ export function ProfilePage() {
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <button className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full glass flex items-center justify-center">
+          <button
+            onClick={openEditDialog}
+            className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full glass flex items-center justify-center"
+          >
             <Edit2 className="w-4 h-4" />
           </button>
 
@@ -461,9 +539,9 @@ export function ProfilePage() {
         {/* Stats */}
         <div className="px-4 pb-4">
           <SectionGroup>
-            <SettingsRow icon={<Users className="w-5 h-5" />} label="Friends" value={String(stats.friends)} onClick={() => { }} hasChevron={false} />
-            <SettingsRow icon={<Hash className="w-5 h-5" />} label="Messages Sent" value={String(stats.rooms)} onClick={() => { }} hasChevron={false} />
-            <SettingsRow icon={<Image className="w-5 h-5" />} label="Posts" value={String(stats.posts)} onClick={() => { }} hasChevron={false} />
+            <SettingsRow icon={<Users className="w-5 h-5" />} label="Friends" value={String(stats.friends)} onClick={openFriendsDialog} hasChevron={false} />
+            <SettingsRow icon={<Hash className="w-5 h-5" />} label="Messages Sent" value={String(stats.rooms)} onClick={() => navigate('/messages')} hasChevron={false} />
+            <SettingsRow icon={<Image className="w-5 h-5" />} label="Posts" value={String(stats.posts)} onClick={() => navigate('/home')} hasChevron={false} />
           </SectionGroup>
         </div>
 
@@ -504,11 +582,113 @@ export function ProfilePage() {
         {/* Danger Zone */}
         <div className="px-4 pb-24 lg:pb-8">
           <SectionGroup>
-            <SettingsRow icon={<Shield className="w-5 h-5" />} label="Privacy Settings" onClick={() => { }} />
+            <SettingsRow icon={<Shield className="w-5 h-5" />} label="Privacy Settings" onClick={() => navigate('/notifications')} />
             <SettingsRow icon={<LogOut className="w-5 h-5" />} label="Sign Out" danger onClick={handleSignOut} />
           </SectionGroup>
         </div>
       </div>
+
+      <Dialog open={showFriendsDialog} onOpenChange={setShowFriendsDialog}>
+        <DialogContent className="glass border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Friends List</DialogTitle>
+          </DialogHeader>
+
+          {friendsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading friends...</p>
+          ) : friendsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground">You don't have any accepted friends yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              {friendsList.map((friend) => (
+                <div key={friend.id} className="glass rounded-xl p-3 flex items-center gap-3">
+                  <button
+                    className="flex items-center gap-3 flex-1 text-left"
+                    onClick={() => {
+                      navigate(`/profile/${friend.id}`);
+                      setShowFriendsDialog(false);
+                    }}
+                  >
+                    <AvatarDisplay avatarId={friend.avatar_id || 'av1'} size="md" isOnline={friend.is_online} />
+                    <div>
+                      <p className="text-sm font-semibold">@{friend.username}</p>
+                      <p className="text-xs text-muted-foreground">{friend.is_online ? 'Online' : 'Offline'}</p>
+                    </div>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => {
+                        navigate(`/messages?with=${friend.id}`);
+                        setShowFriendsDialog(false);
+                      }}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => void startCall(friend.id, friend.username, 'voice')}
+                    >
+                      <Phone className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => void startCall(friend.id, friend.username, 'video')}
+                    >
+                      <Video className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="glass border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Bio</label>
+              <Textarea
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                placeholder="Write your bio"
+                className="min-h-[100px]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">State</label>
+              <Input
+                value={editState}
+                onChange={(e) => setEditState(e.target.value)}
+                placeholder="Enter your state"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setShowEditDialog(false)} disabled={savingProfile}>
+                Cancel
+              </Button>
+              <Button className="flex-1 gradient-primary text-white border-0" onClick={handleSaveProfile} disabled={savingProfile}>
+                {savingProfile ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

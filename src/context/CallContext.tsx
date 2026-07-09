@@ -70,6 +70,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+    const callStatusRef = useRef<CallStatus>('idle');
+    const activeCallRef = useRef<ActiveCall | null>(null);
+
+    useEffect(() => {
+        callStatusRef.current = callStatus;
+    }, [callStatus]);
+
+    useEffect(() => {
+        activeCallRef.current = activeCall;
+    }, [activeCall]);
 
     const stopLocalTracks = useCallback(() => {
         setLocalStream((prev) => {
@@ -170,7 +180,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const startCall = useCallback(async (peerId: string, peerUsername: string, callType: CallType) => {
         if (!user) return;
 
-        if (callStatus !== 'idle') {
+        if (callStatusRef.current !== 'idle') {
             toast.error('You are already in another call.');
             return;
         }
@@ -195,7 +205,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         });
 
         toast.success(`${callType === 'video' ? 'Video' : 'Voice'} call request sent to @${peerUsername}`);
-    }, [callStatus, isAcceptedFriend, profile?.username, sendSignal, user]);
+    }, [isAcceptedFriend, profile?.username, sendSignal, user]);
 
     const declineIncomingCall = useCallback(async () => {
         if (!user || !incomingCall) return;
@@ -283,11 +293,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             .on('broadcast', { event: 'call-event' }, async ({ payload }: { payload: CallEvent }) => {
                 const event = payload;
                 if (event.toUserId !== user.id) return;
+                const currentActiveCall = activeCallRef.current;
+                const currentCallStatus = callStatusRef.current;
 
                 switch (event.kind) {
                     case 'invite': {
                         const allowed = await isAcceptedFriend(user.id, event.fromUserId);
-                        if (!allowed || callStatus !== 'idle') {
+                        if (!allowed || currentCallStatus !== 'idle') {
                             await sendSignal({
                                 kind: 'invite-declined',
                                 fromUserId: user.id,
@@ -308,12 +320,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         break;
                     }
                     case 'invite-accepted': {
-                        if (!activeCall || activeCall.roomId !== event.roomId || !activeCall.isCaller) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId || !currentActiveCall.isCaller) return;
 
                         try {
                             setCallStatus('connecting');
-                            const stream = await ensureLocalStream(activeCall.callType);
-                            const peer = createPeerConnection(activeCall.roomId, activeCall.peerId);
+                            const stream = await ensureLocalStream(currentActiveCall.callType);
+                            const peer = createPeerConnection(currentActiveCall.roomId, currentActiveCall.peerId);
                             attachStreamToPeer(peer, stream);
 
                             const offer = await peer.createOffer();
@@ -322,8 +334,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                             await sendSignal({
                                 kind: 'offer',
                                 fromUserId: user.id,
-                                toUserId: activeCall.peerId,
-                                roomId: activeCall.roomId,
+                                toUserId: currentActiveCall.peerId,
+                                roomId: currentActiveCall.roomId,
                                 sdp: offer,
                             });
                         } catch (error) {
@@ -334,13 +346,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         break;
                     }
                     case 'invite-declined': {
-                        if (!activeCall || activeCall.roomId !== event.roomId) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId) return;
                         toast.error(event.reason === 'busy' ? 'User is busy right now.' : 'Call declined.');
                         resetCallState();
                         break;
                     }
                     case 'offer': {
-                        if (!activeCall || activeCall.roomId !== event.roomId || !pcRef.current) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId || !pcRef.current) return;
 
                         await pcRef.current.setRemoteDescription(new RTCSessionDescription(event.sdp));
                         const answer = await pcRef.current.createAnswer();
@@ -349,19 +361,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         await sendSignal({
                             kind: 'answer',
                             fromUserId: user.id,
-                            toUserId: activeCall.peerId,
-                            roomId: activeCall.roomId,
+                            toUserId: currentActiveCall.peerId,
+                            roomId: currentActiveCall.roomId,
                             sdp: answer,
                         });
                         break;
                     }
                     case 'answer': {
-                        if (!activeCall || activeCall.roomId !== event.roomId || !pcRef.current) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId || !pcRef.current) return;
                         await pcRef.current.setRemoteDescription(new RTCSessionDescription(event.sdp));
                         break;
                     }
                     case 'ice-candidate': {
-                        if (!activeCall || activeCall.roomId !== event.roomId || !pcRef.current || !event.candidate) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId || !pcRef.current || !event.candidate) return;
                         try {
                             await pcRef.current.addIceCandidate(new RTCIceCandidate(event.candidate));
                         } catch (error) {
@@ -370,7 +382,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         break;
                     }
                     case 'hangup': {
-                        if (!activeCall || activeCall.roomId !== event.roomId) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId) return;
                         toast.message('Call ended');
                         resetCallState();
                         break;
@@ -390,7 +402,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             signalingChannelRef.current = null;
             resetCallState();
         };
-    }, [activeCall, attachStreamToPeer, callStatus, createPeerConnection, ensureLocalStream, isAcceptedFriend, resetCallState, sendSignal, user]);
+    }, [attachStreamToPeer, createPeerConnection, ensureLocalStream, isAcceptedFriend, resetCallState, sendSignal, user]);
 
     const value = useMemo<CallContextType>(() => ({
         callStatus,
