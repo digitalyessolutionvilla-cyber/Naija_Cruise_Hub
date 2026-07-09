@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { MessageSquare, Search, ChevronLeft, Send } from 'lucide-react';
+import { MessageSquare, Search, ChevronLeft, Send, Phone, Video } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TopBar } from '@/components/layout/TopBar';
 import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
@@ -14,6 +14,14 @@ import type { Conversation } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useCall } from '@/context/CallContext';
+
+type FriendProfile = {
+  id: string;
+  username: string;
+  avatar_id: string;
+  is_online: boolean;
+};
 
 function ConversationList({ conversations, loading, onSelect }: {
   conversations: Conversation[];
@@ -84,10 +92,62 @@ function ConversationList({ conversations, loading, onSelect }: {
   );
 }
 
-function ChatView({ partnerId, partnerProfile, onBack }: {
+function FriendCallList({
+  friends,
+  onOpenChat,
+  onVoiceCall,
+  onVideoCall,
+}: {
+  friends: FriendProfile[];
+  onOpenChat: (friend: FriendProfile) => void;
+  onVoiceCall: (friend: FriendProfile) => void;
+  onVideoCall: (friend: FriendProfile) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Friends</h2>
+        <span className="text-xs text-muted-foreground">{friends.length} available to call</span>
+      </div>
+
+      {friends.length === 0 ? (
+        <div className="glass rounded-2xl p-4 text-xs text-muted-foreground">
+          Add and accept friends to start voice and video calls.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {friends.map((friend) => (
+            <div key={friend.id} className="glass rounded-2xl p-3 flex items-center gap-3">
+              <button className="flex items-center gap-3 flex-1 text-left" onClick={() => onOpenChat(friend)}>
+                <AvatarDisplay avatarId={friend.avatar_id || 'av1'} size="md" isOnline={friend.is_online} />
+                <div>
+                  <p className="font-semibold text-sm">@{friend.username}</p>
+                  <p className="text-xs text-muted-foreground">{friend.is_online ? 'Online' : 'Offline'}</p>
+                </div>
+              </button>
+
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onVoiceCall(friend)}>
+                  <Phone className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onVideoCall(friend)}>
+                  <Video className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatView({ partnerId, partnerProfile, onBack, onVoiceCall, onVideoCall }: {
   partnerId: string;
   partnerProfile: Partial<import('@/types').Profile> | undefined;
   onBack: () => void;
+  onVoiceCall: (partnerId: string, username: string) => void;
+  onVideoCall: (partnerId: string, username: string) => void;
 }) {
   const { user } = useAuth();
   const { messages, sendMessage, messagePermission } = useMessages(partnerId);
@@ -129,12 +189,32 @@ function ChatView({ partnerId, partnerProfile, onBack }: {
           <ChevronLeft className="w-5 h-5" />
         </Button>
         <AvatarDisplay avatarId={partnerProfile?.avatar_id || 'av1'} size="sm" isOnline={partnerProfile?.is_online} />
-        <div>
+        <div className="flex-1">
           <p className="font-semibold text-sm">@{partnerProfile?.username || 'user'}</p>
           <p className={cn('text-xs', statusClass)}>
             {statusText}
           </p>
         </div>
+        {messagePermission.kind === 'friends' && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => onVoiceCall(partnerId, partnerProfile?.username || 'user')}
+            >
+              <Phone className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => onVideoCall(partnerId, partnerProfile?.username || 'user')}
+            >
+              <Video className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -183,8 +263,43 @@ export function MessagesPage() {
   const { conversations, loading, fetchConversations } = useMessages();
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [searchParams] = useSearchParams();
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
+  const { user } = useAuth();
+  const { startCall } = useCall();
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchFriends = async () => {
+      const { data: relationships } = await supabase
+        .from('friendships')
+        .select('requester_id, addressee_id')
+        .eq('status', 'accepted')
+        .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
+
+      const friendIds = (relationships || []).map((row) =>
+        row.requester_id === user.id ? row.addressee_id : row.requester_id
+      );
+
+      if (friendIds.length === 0) {
+        setFriends([]);
+        return;
+      }
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_id, is_online')
+        .in('id', friendIds)
+        .order('is_online', { ascending: false })
+        .order('username', { ascending: true });
+
+      setFriends((profiles || []) as FriendProfile[]);
+    };
+
+    void fetchFriends();
+  }, [user]);
 
   useEffect(() => {
     const partnerId = searchParams.get('with');
@@ -215,6 +330,30 @@ export function MessagesPage() {
     void openDirectChat();
   }, [searchParams, conversations, activeConv]);
 
+  const openChatWithFriend = (friend: FriendProfile) => {
+    const existing = conversations.find((c) => c.partner_id === friend.id);
+    if (existing) {
+      setActiveConv(existing);
+      return;
+    }
+
+    setActiveConv({
+      partner_id: friend.id,
+      last_message: '',
+      last_time: new Date().toISOString(),
+      unread_count: 0,
+      profile: friend,
+    });
+  };
+
+  const handleVoiceCall = (partnerId: string, username: string) => {
+    void startCall(partnerId, username, 'voice');
+  };
+
+  const handleVideoCall = (partnerId: string, username: string) => {
+    void startCall(partnerId, username, 'video');
+  };
+
   return (
     <AppLayout>
       {activeConv ? (
@@ -223,12 +362,21 @@ export function MessagesPage() {
             partnerId={activeConv.partner_id}
             partnerProfile={activeConv.profile}
             onBack={() => { setActiveConv(null); fetchConversations(); }}
+            onVoiceCall={handleVoiceCall}
+            onVideoCall={handleVideoCall}
           />
         </div>
       ) : (
         <>
           <TopBar title="Messages" showSearch={false} />
-          <div className="max-w-2xl mx-auto w-full p-4">
+          <div className="max-w-2xl mx-auto w-full p-4 space-y-6">
+            <FriendCallList
+              friends={friends}
+              onOpenChat={openChatWithFriend}
+              onVoiceCall={(friend) => handleVoiceCall(friend.id, friend.username)}
+              onVideoCall={(friend) => handleVideoCall(friend.id, friend.username)}
+            />
+
             <ConversationList
               conversations={conversations}
               loading={loading}

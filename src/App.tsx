@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { routers } from "./router";
 import { AuthProvider } from "./context/AuthContext";
 import { NotificationProvider } from "./context/NotificationContext";
+import { CallProvider } from "./context/CallContext";
 
 const queryClient = new QueryClient();
 
@@ -17,11 +18,13 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <NotificationProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <RouterProvider router={router} />
-            </TooltipProvider>
+            <CallProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <RouterProvider router={router} />
+              </TooltipProvider>
+            </CallProvider>
           </NotificationProvider>
         </AuthProvider>
       </QueryClientProvider>
