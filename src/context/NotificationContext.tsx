@@ -125,8 +125,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [loading, setLoading] = useState(true);
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastSoundPlayRef = useRef<Record<string, number>>({});
+  const settingsSaveTimeoutRef = useRef<number | null>(null);
 
-  const getCurrentPath = () => `${window.location.pathname}${window.location.search}`;
+  const getCurrentPath = useCallback(() => `${window.location.pathname}${window.location.search}`, []);
 
   const isWithinQuietHours = useCallback((value: NotificationSettings) => {
     if (!value.quietHoursEnabled) return false;
@@ -272,6 +273,42 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const persistRoomUnreadToStorage = useCallback((uid: string, value: Record<string, number>) => {
     localStorage.setItem(`room-unread:${uid}`, JSON.stringify(value));
+  }, []);
+
+  const persistSettingsToDb = useCallback((uid: string, value: NotificationSettings) => {
+    const sb = supabase as any;
+    void sb.from('user_notification_settings').upsert({
+      user_id: uid,
+      sound_enabled: value.soundEnabled,
+      vibration_enabled: value.vibrationEnabled,
+      push_enabled: value.pushEnabled,
+      email_enabled: value.emailEnabled,
+      quiet_hours_enabled: value.quietHoursEnabled,
+      quiet_hours_start: value.quietHoursStart,
+      quiet_hours_end: value.quietHoursEnd,
+      selected_sound: value.selectedSound,
+      sound_volume: value.soundVolume,
+      muted_categories: value.mutedCategories,
+    }, { onConflict: 'user_id' });
+  }, []);
+
+  const scheduleSettingsPersist = useCallback((uid: string, value: NotificationSettings) => {
+    if (settingsSaveTimeoutRef.current !== null) {
+      window.clearTimeout(settingsSaveTimeoutRef.current);
+    }
+
+    settingsSaveTimeoutRef.current = window.setTimeout(() => {
+      persistSettingsToDb(uid, value);
+      settingsSaveTimeoutRef.current = null;
+    }, 350);
+  }, [persistSettingsToDb]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsSaveTimeoutRef.current !== null) {
+        window.clearTimeout(settingsSaveTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -476,24 +513,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         },
       };
 
-      const sb = supabase as any;
-      void sb.from('user_notification_settings').upsert({
-        user_id: userId,
-        sound_enabled: next.soundEnabled,
-        vibration_enabled: next.vibrationEnabled,
-        push_enabled: next.pushEnabled,
-        email_enabled: next.emailEnabled,
-        quiet_hours_enabled: next.quietHoursEnabled,
-        quiet_hours_start: next.quietHoursStart,
-        quiet_hours_end: next.quietHoursEnd,
-        selected_sound: next.selectedSound,
-        sound_volume: next.soundVolume,
-        muted_categories: next.mutedCategories,
-      }, { onConflict: 'user_id' });
+      scheduleSettingsPersist(userId, next);
 
       return next;
     });
-  }, [userId]);
+  }, [scheduleSettingsPersist, userId]);
 
   const toggleCategoryMuted = useCallback(async (category: NotificationCategory, muted: boolean) => {
     await updateSettings({
