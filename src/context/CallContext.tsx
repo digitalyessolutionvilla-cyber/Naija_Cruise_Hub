@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, CameraOff, Mic, MicOff, Phone, PhoneOff, Shield, Video } from 'lucide-react';
+import { Camera, CameraOff, Maximize2, Mic, MicOff, Minimize2, Phone, PhoneOff, Shield, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -69,6 +69,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraEnabled, setIsCameraEnabled] = useState(true);
+    const [isOverlayMinimized, setIsOverlayMinimized] = useState(false);
 
     const signalingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -76,6 +77,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const callStatusRef = useRef<CallStatus>('idle');
     const activeCallRef = useRef<ActiveCall | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const ringtoneIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
         callStatusRef.current = callStatus;
@@ -112,8 +115,79 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         setElapsedSeconds(0);
         setIsMuted(false);
         setIsCameraEnabled(true);
+        setIsOverlayMinimized(false);
         setCallStatus('idle');
     }, [cleanupPeerConnection, stopLocalTracks]);
+
+    const stopRingtone = useCallback(() => {
+        if (ringtoneIntervalRef.current !== null) {
+            window.clearInterval(ringtoneIntervalRef.current);
+            ringtoneIntervalRef.current = null;
+        }
+    }, []);
+
+    const getAudioContext = useCallback(async () => {
+        if (typeof window === 'undefined') return null;
+        if (!audioContextRef.current) {
+            const Ctx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+            if (!Ctx) return null;
+            audioContextRef.current = new Ctx();
+        }
+        if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+        }
+        return audioContextRef.current;
+    }, []);
+
+    const playTone = useCallback((ctx: AudioContext, frequency: number, durationMs: number, delayMs: number, volume = 0.05, type: OscillatorType = 'sine') => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const startAt = ctx.currentTime + (delayMs / 1000);
+        const endAt = startAt + (durationMs / 1000);
+
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, startAt);
+
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(volume, startAt + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startAt);
+        osc.stop(endAt + 0.02);
+    }, []);
+
+    const startIncomingRingtone = useCallback(async () => {
+        stopRingtone();
+        const ctx = await getAudioContext();
+        if (!ctx) return;
+
+        const sequence = () => {
+            playTone(ctx, 698, 220, 0, 0.06, 'triangle');
+            playTone(ctx, 880, 260, 280, 0.06, 'triangle');
+            playTone(ctx, 1047, 300, 620, 0.05, 'triangle');
+            playTone(ctx, 880, 260, 980, 0.045, 'triangle');
+        };
+
+        sequence();
+        ringtoneIntervalRef.current = window.setInterval(sequence, 2400);
+    }, [getAudioContext, playTone, stopRingtone]);
+
+    const startOutgoingRingback = useCallback(async () => {
+        stopRingtone();
+        const ctx = await getAudioContext();
+        if (!ctx) return;
+
+        const sequence = () => {
+            playTone(ctx, 440, 350, 0, 0.04, 'sine');
+            playTone(ctx, 440, 350, 500, 0.04, 'sine');
+        };
+
+        sequence();
+        ringtoneIntervalRef.current = window.setInterval(sequence, 3000);
+    }, [getAudioContext, playTone, stopRingtone]);
 
     const isAcceptedFriend = useCallback(async (selfId: string, otherId: string) => {
         const { data } = await supabase
@@ -314,6 +388,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }, [callStartedAt, callStatus]);
 
     useEffect(() => {
+        if (callStatus === 'incoming') {
+            void startIncomingRingtone();
+            return;
+        }
+        if (callStatus === 'calling') {
+            void startOutgoingRingback();
+            return;
+        }
+        stopRingtone();
+    }, [callStatus, startIncomingRingtone, startOutgoingRingback, stopRingtone]);
+
+    useEffect(() => {
         if (!activeCall || callStatus === 'idle') return;
 
         const handleContextMenu = (event: MouseEvent) => {
@@ -347,6 +433,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [activeCall, callStatus]);
+
+    useEffect(() => {
+        return () => {
+            stopRingtone();
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                void audioContextRef.current.close();
+            }
+        };
+    }, [stopRingtone]);
 
     useEffect(() => {
         if (!localVideoRef.current) return;
@@ -518,91 +613,141 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             )}
 
             {activeCall && callStatus !== 'idle' && (
-                <div className="fixed inset-0 z-40 bg-black text-white select-none">
-                    {activeCall.callType === 'video' ? (
-                        <div className="absolute inset-0">
-                            {remoteStream ? (
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    className="w-full h-full object-cover"
-                                />
-                            ) : (
-                                <div className="w-full h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
-                            )}
-                        </div>
-                    ) : (
-                        <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
-                    )}
-
-                    <div className="absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
-                        <div className="max-w-md mx-auto text-center">
-                            <p className="font-semibold text-lg">@{activeCall.peerUsername}</p>
-                            <div className="mt-1 flex items-center justify-center gap-2 text-xs text-white/90">
-                                <Shield className="w-3.5 h-3.5" />
-                                <span>End-to-end encrypted</span>
-                                <span>•</span>
-                                <span>
+                isOverlayMinimized ? (
+                    <div className="fixed right-4 bottom-20 lg:bottom-6 z-50 w-[320px] glass-strong rounded-2xl border border-border p-3 shadow-elegant">
+                        <div className="flex items-center justify-between gap-2">
+                            <div>
+                                <p className="text-sm font-semibold truncate">@{activeCall.peerUsername}</p>
+                                <p className="text-xs text-muted-foreground">
                                     {callStatus === 'calling'
                                         ? 'Ringing...'
                                         : callStatus === 'connecting'
                                             ? 'Connecting...'
                                             : formatCallDuration(elapsedSeconds)}
-                                </span>
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    onClick={toggleMute}
+                                >
+                                    {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                                </Button>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    onClick={() => setIsOverlayMinimized(false)}
+                                >
+                                    <Maximize2 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    size="icon"
+                                    className="h-9 w-9 rounded-full bg-red-600 hover:bg-red-500 text-white"
+                                    onClick={() => void endCall()}
+                                >
+                                    <PhoneOff className="w-4 h-4" />
+                                </Button>
                             </div>
                         </div>
                     </div>
+                ) : (
+                    <div className="fixed inset-0 z-40 bg-black text-white select-none">
+                        {activeCall.callType === 'video' ? (
+                            <div className="absolute inset-0">
+                                {remoteStream ? (
+                                    <video
+                                        ref={remoteVideoRef}
+                                        autoPlay
+                                        playsInline
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <div className="w-full h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
+                                )}
+                            </div>
+                        ) : (
+                            <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
+                        )}
 
-                    {activeCall.callType === 'video' && (
-                        <div className="absolute top-16 right-4 w-28 h-40 rounded-2xl overflow-hidden border border-white/25 bg-black/40 shadow-lg">
-                            {localStream && isCameraEnabled ? (
-                                <video
-                                    ref={localVideoRef}
-                                    autoPlay
-                                    muted
-                                    playsInline
-                                    className="w-full h-full object-cover"
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-black/70">
-                                    <CameraOff className="w-5 h-5 text-white/80" />
+                        <div className="absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
+                            <div className="max-w-md mx-auto text-center relative">
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="absolute right-0 top-0 h-8 w-8 text-white/90 hover:text-white hover:bg-white/10"
+                                    onClick={() => setIsOverlayMinimized(true)}
+                                >
+                                    <Minimize2 className="w-4 h-4" />
+                                </Button>
+                                <p className="font-semibold text-lg">@{activeCall.peerUsername}</p>
+                                <div className="mt-1 flex items-center justify-center gap-2 text-xs text-white/90">
+                                    <Shield className="w-3.5 h-3.5" />
+                                    <span>End-to-end encrypted</span>
+                                    <span>•</span>
+                                    <span>
+                                        {callStatus === 'calling'
+                                            ? 'Ringing...'
+                                            : callStatus === 'connecting'
+                                                ? 'Connecting...'
+                                                : formatCallDuration(elapsedSeconds)}
+                                    </span>
                                 </div>
-                            )}
+                            </div>
                         </div>
-                    )}
 
-                    <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/45 to-transparent">
-                        <div className="mx-auto flex items-center justify-center gap-5">
-                            {activeCall.callType === 'video' && (
+                        {activeCall.callType === 'video' && (
+                            <div className="absolute top-16 right-4 w-28 h-40 rounded-2xl overflow-hidden border border-white/25 bg-black/40 shadow-lg">
+                                {localStream && isCameraEnabled ? (
+                                    <video
+                                        ref={localVideoRef}
+                                        autoPlay
+                                        muted
+                                        playsInline
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-black/70">
+                                        <CameraOff className="w-5 h-5 text-white/80" />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/45 to-transparent">
+                            <div className="mx-auto flex items-center justify-center gap-5">
+                                {activeCall.callType === 'video' && (
+                                    <Button
+                                        size="icon"
+                                        className="h-12 w-12 rounded-full bg-white/15 hover:bg-white/25 border border-white/20"
+                                        onClick={toggleCamera}
+                                    >
+                                        {isCameraEnabled ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
+                                    </Button>
+                                )}
                                 <Button
                                     size="icon"
                                     className="h-12 w-12 rounded-full bg-white/15 hover:bg-white/25 border border-white/20"
-                                    onClick={toggleCamera}
+                                    onClick={toggleMute}
                                 >
-                                    {isCameraEnabled ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
+                                    {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                                 </Button>
-                            )}
-                            <Button
-                                size="icon"
-                                className="h-12 w-12 rounded-full bg-white/15 hover:bg-white/25 border border-white/20"
-                                onClick={toggleMute}
-                            >
-                                {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            </Button>
-                            <Button
-                                size="icon"
-                                className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-500 text-white"
-                                onClick={() => void endCall()}
-                            >
-                                <PhoneOff className="w-6 h-6" />
-                            </Button>
-                        </div>
-                        <div className="text-center text-[11px] text-white/70 mt-3">
-                            Protected call screen. Recording and screenshots are restricted by app policy.
+                                <Button
+                                    size="icon"
+                                    className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-500 text-white"
+                                    onClick={() => void endCall()}
+                                >
+                                    <PhoneOff className="w-6 h-6" />
+                                </Button>
+                            </div>
+                            <div className="text-center text-[11px] text-white/70 mt-3">
+                                Protected call screen. Recording and screenshots are restricted by app policy.
+                            </div>
                         </div>
                     </div>
-                </div>
+                )
             )}
         </CallContext.Provider>
     );
