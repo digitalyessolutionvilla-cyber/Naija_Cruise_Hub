@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Phone, PhoneOff, Video } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, Phone, PhoneOff, Shield, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -65,6 +65,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [isMuted, setIsMuted] = useState(false);
+    const [isCameraEnabled, setIsCameraEnabled] = useState(true);
 
     const signalingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -104,6 +108,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         stopLocalTracks();
         setIncomingCall(null);
         setActiveCall(null);
+        setCallStartedAt(null);
+        setElapsedSeconds(0);
+        setIsMuted(false);
+        setIsCameraEnabled(true);
         setCallStatus('idle');
     }, [cleanupPeerConnection, stopLocalTracks]);
 
@@ -135,6 +143,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             audio: true,
             video: callType === 'video',
         });
+        setIsMuted(false);
+        setIsCameraEnabled(callType === 'video');
         setLocalStream(stream);
         return stream;
     }, []);
@@ -164,6 +174,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             if (stream) {
                 setRemoteStream(stream);
                 setCallStatus('active');
+                setCallStartedAt((prev) => prev ?? Date.now());
             }
         };
 
@@ -271,6 +282,71 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         resetCallState();
     }, [activeCall, resetCallState, sendSignal, user]);
+
+    const toggleMute = useCallback(() => {
+        const nextMuted = !isMuted;
+        localStream?.getAudioTracks().forEach((track) => {
+            track.enabled = !nextMuted;
+        });
+        setIsMuted(nextMuted);
+    }, [isMuted, localStream]);
+
+    const toggleCamera = useCallback(() => {
+        const nextEnabled = !isCameraEnabled;
+        localStream?.getVideoTracks().forEach((track) => {
+            track.enabled = nextEnabled;
+        });
+        setIsCameraEnabled(nextEnabled);
+    }, [isCameraEnabled, localStream]);
+
+    useEffect(() => {
+        if (callStatus !== 'active' || !callStartedAt) {
+            setElapsedSeconds(0);
+            return;
+        }
+
+        setElapsedSeconds(Math.floor((Date.now() - callStartedAt) / 1000));
+        const interval = setInterval(() => {
+            setElapsedSeconds(Math.floor((Date.now() - callStartedAt) / 1000));
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [callStartedAt, callStatus]);
+
+    useEffect(() => {
+        if (!activeCall || callStatus === 'idle') return;
+
+        const handleContextMenu = (event: MouseEvent) => {
+            event.preventDefault();
+        };
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            const key = event.key.toLowerCase();
+            const looksLikeCapture =
+                event.key === 'PrintScreen' ||
+                ((event.metaKey || event.ctrlKey) && event.shiftKey && (key === '3' || key === '4' || key === '5' || key === 's'));
+
+            if (!looksLikeCapture) return;
+            event.preventDefault();
+            toast.error('Screen capture is blocked during calls on this app.');
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                toast.warning('Keep call in foreground for privacy and best quality.');
+            }
+        };
+
+        window.addEventListener('contextmenu', handleContextMenu);
+        window.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('contextmenu', handleContextMenu);
+            window.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [activeCall, callStatus]);
 
     useEffect(() => {
         if (!localVideoRef.current) return;
@@ -416,6 +492,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         endCall,
     }), [acceptIncomingCall, activeCall, callStatus, declineIncomingCall, endCall, incomingCall, localStream, remoteStream, startCall]);
 
+    const formatCallDuration = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     return (
         <CallContext.Provider value={value}>
             {children}
@@ -436,43 +518,88 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             )}
 
             {activeCall && callStatus !== 'idle' && (
-                <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="w-full max-w-xl rounded-2xl bg-card border border-border p-4 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="font-semibold">{activeCall.callType === 'video' ? 'Video call' : 'Voice call'} with @{activeCall.peerUsername}</p>
-                                <p className="text-xs text-muted-foreground capitalize">{callStatus === 'calling' ? 'Ringing...' : callStatus}</p>
-                            </div>
-                            <Button variant="destructive" size="sm" onClick={() => void endCall()}>
-                                <PhoneOff className="w-4 h-4 mr-1" /> End
-                            </Button>
+                <div className="fixed inset-0 z-40 bg-black text-white select-none">
+                    {activeCall.callType === 'video' ? (
+                        <div className="absolute inset-0">
+                            {remoteStream ? (
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <div className="w-full h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
+                            )}
                         </div>
+                    ) : (
+                        <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900" />
+                    )}
 
-                        {activeCall.callType === 'video' ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
+                        <div className="max-w-md mx-auto text-center">
+                            <p className="font-semibold text-lg">@{activeCall.peerUsername}</p>
+                            <div className="mt-1 flex items-center justify-center gap-2 text-xs text-white/90">
+                                <Shield className="w-3.5 h-3.5" />
+                                <span>End-to-end encrypted</span>
+                                <span>•</span>
+                                <span>
+                                    {callStatus === 'calling'
+                                        ? 'Ringing...'
+                                        : callStatus === 'connecting'
+                                            ? 'Connecting...'
+                                            : formatCallDuration(elapsedSeconds)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {activeCall.callType === 'video' && (
+                        <div className="absolute top-16 right-4 w-28 h-40 rounded-2xl overflow-hidden border border-white/25 bg-black/40 shadow-lg">
+                            {localStream && isCameraEnabled ? (
                                 <video
                                     ref={localVideoRef}
                                     autoPlay
                                     muted
                                     playsInline
-                                    className="w-full h-56 bg-muted rounded-xl object-cover"
+                                    className="w-full h-full object-cover"
                                 />
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    className="w-full h-56 bg-muted rounded-xl object-cover"
-                                />
-                            </div>
-                        ) : (
-                            <div className="rounded-xl bg-muted/40 p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                                <Phone className="w-4 h-4" />
-                                Voice call in progress
-                            </div>
-                        )}
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-black/70">
+                                    <CameraOff className="w-5 h-5 text-white/80" />
+                                </div>
+                            )}
+                        </div>
+                    )}
 
-                        <div className="text-xs text-muted-foreground">
-                            Keep this tab open while on call.
+                    <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/45 to-transparent">
+                        <div className="mx-auto flex items-center justify-center gap-5">
+                            {activeCall.callType === 'video' && (
+                                <Button
+                                    size="icon"
+                                    className="h-12 w-12 rounded-full bg-white/15 hover:bg-white/25 border border-white/20"
+                                    onClick={toggleCamera}
+                                >
+                                    {isCameraEnabled ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
+                                </Button>
+                            )}
+                            <Button
+                                size="icon"
+                                className="h-12 w-12 rounded-full bg-white/15 hover:bg-white/25 border border-white/20"
+                                onClick={toggleMute}
+                            >
+                                {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            </Button>
+                            <Button
+                                size="icon"
+                                className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-500 text-white"
+                                onClick={() => void endCall()}
+                            >
+                                <PhoneOff className="w-6 h-6" />
+                            </Button>
+                        </div>
+                        <div className="text-center text-[11px] text-white/70 mt-3">
+                            Protected call screen. Recording and screenshots are restricted by app policy.
                         </div>
                     </div>
                 </div>

@@ -25,9 +25,11 @@ export function UserProfilePage() {
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [canViewProfile, setCanViewProfile] = useState(false);
   const [isFriend, setIsFriend] = useState(false);
   const [friendRequested, setFriendRequested] = useState(false);
   const [friendLoading, setFriendLoading] = useState(false);
+  const [lockedProfile, setLockedProfile] = useState<Partial<Profile> | null>(null);
 
   // Redirect to own profile
   useEffect(() => {
@@ -41,39 +43,73 @@ export function UserProfilePage() {
 
     const fetchAll = async () => {
       setLoading(true);
-      const [{ data: profileData }, { data: postsData }, { data: friendData }, { data: requestedData }] =
-        await Promise.all([
-          supabase.from('profiles').select('*').eq('id', userId).single(),
-          supabase
-            .from('posts')
-            .select('*, profile:profiles(username, avatar_id, level)')
-            .eq('user_id', userId)
-            .eq('is_anonymous', false)
-            .order('created_at', { ascending: false })
-            .limit(20),
-          user
-            ? supabase
-              .from('friendships')
-              .select('id')
-              .or(`and(requester_id.eq.${user.id},addressee_id.eq.${userId}),and(requester_id.eq.${userId},addressee_id.eq.${user.id})`)
-              .eq('status', 'accepted')
-              .maybeSingle()
-            : Promise.resolve({ data: null }),
-          user
-            ? supabase
-              .from('friendships')
-              .select('id')
-              .eq('requester_id', user.id)
-              .eq('addressee_id', userId)
-              .eq('status', 'pending')
-              .maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
 
-      if (profileData) setProfile(profileData as PublicProfile);
-      if (postsData) setPosts(postsData as Post[]);
+      if (!user) {
+        const { data: limitedProfile } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_id, level, is_online')
+          .eq('id', userId)
+          .maybeSingle();
+
+        setCanViewProfile(false);
+        setIsFriend(false);
+        setFriendRequested(false);
+        setProfile(null);
+        setPosts([]);
+        setLockedProfile(limitedProfile as Partial<Profile> | null);
+        setLoading(false);
+        return;
+      }
+
+      const [{ data: friendData }, { data: requestedData }] = await Promise.all([
+        supabase
+          .from('friendships')
+          .select('id')
+          .or(`and(requester_id.eq.${user.id},addressee_id.eq.${userId}),and(requester_id.eq.${userId},addressee_id.eq.${user.id})`)
+          .eq('status', 'accepted')
+          .maybeSingle(),
+        supabase
+          .from('friendships')
+          .select('id')
+          .eq('requester_id', user.id)
+          .eq('addressee_id', userId)
+          .eq('status', 'pending')
+          .maybeSingle(),
+      ]);
+
       setIsFriend(!!friendData);
       setFriendRequested(!!requestedData);
+
+      if (!friendData) {
+        const { data: limitedProfile } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_id, level, is_online')
+          .eq('id', userId)
+          .maybeSingle();
+
+        setCanViewProfile(false);
+        setProfile(null);
+        setPosts([]);
+        setLockedProfile(limitedProfile as Partial<Profile> | null);
+        setLoading(false);
+        return;
+      }
+
+      const [{ data: profileData }, { data: postsData }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userId).single(),
+        supabase
+          .from('posts')
+          .select('*, profile:profiles(username, avatar_id, level)')
+          .eq('user_id', userId)
+          .eq('is_anonymous', false)
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
+
+      setCanViewProfile(true);
+      setLockedProfile(null);
+      if (profileData) setProfile(profileData as PublicProfile);
+      if (postsData) setPosts(postsData as Post[]);
       setLoading(false);
     };
 
@@ -81,7 +117,7 @@ export function UserProfilePage() {
   }, [userId, user]);
 
   const handleAddFriend = async () => {
-    if (!user || !userId || !profile) return;
+    if (!user || !userId) return;
     setFriendLoading(true);
     const { error } = await supabase
       .from('friendships')
@@ -116,6 +152,41 @@ export function UserProfilePage() {
   }
 
   if (!profile) {
+    if (!canViewProfile && lockedProfile) {
+      return (
+        <AppLayout>
+          <TopBar showSearch={false} />
+          <div className="max-w-md mx-auto p-4 pt-8">
+            <div className="glass rounded-2xl p-6 text-center space-y-4">
+              <div className="flex justify-center">
+                <AvatarDisplay avatarId={lockedProfile.avatar_id || 'av1'} size="xl" isOnline={lockedProfile.is_online} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">@{lockedProfile.username || 'user'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">Private profile</p>
+                <p className="text-xs text-muted-foreground mt-2">Only accepted friends can view full profile details.</p>
+              </div>
+
+              <div className="flex gap-2 justify-center">
+                {!user ? (
+                  <Button onClick={() => navigate('/auth')}>Sign in</Button>
+                ) : friendRequested ? (
+                  <Button variant="outline" disabled>
+                    <UserCheck className="w-4 h-4 mr-1" /> Requested
+                  </Button>
+                ) : (
+                  <Button onClick={handleAddFriend} disabled={friendLoading} className="gradient-primary text-white">
+                    <UserPlus className="w-4 h-4 mr-1" /> Add Friend
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => navigate(-1)}>Go Back</Button>
+              </div>
+            </div>
+          </div>
+        </AppLayout>
+      );
+    }
+
     return (
       <AppLayout>
         <TopBar showSearch={false} />

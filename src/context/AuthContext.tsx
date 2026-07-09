@@ -100,6 +100,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [fetchProfile, claimDailyLogin, claimInviteReward]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    let isActive = true;
+    const markOnline = async () => {
+      if (!isActive) return;
+      await supabase
+        .from('profiles')
+        .update({ is_online: true, last_seen: new Date().toISOString() })
+        .eq('id', user.id);
+    };
+
+    const markOffline = async () => {
+      await supabase
+        .from('profiles')
+        .update({ is_online: false, last_seen: new Date().toISOString() })
+        .eq('id', user.id);
+    };
+
+    void markOnline();
+
+    const interval = setInterval(() => {
+      void markOnline();
+    }, 20000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void markOnline();
+      } else {
+        void markOffline();
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      void markOffline();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      void markOffline();
+    };
+  }, [user]);
+
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user.id);
   }, [user, fetchProfile]);
@@ -154,7 +203,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     if (user) {
-      await supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
+      await supabase
+        .from('profiles')
+        .update({ is_online: false, last_seen: new Date().toISOString() })
+        .eq('id', user.id);
     }
     await supabase.auth.signOut();
   };

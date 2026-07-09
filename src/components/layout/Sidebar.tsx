@@ -2,7 +2,6 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Users, Bell, User, Coins, LogOut, Moon, Sun, Hash, Wallet } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationContext } from '@/context/NotificationContext';
-import { useOnlineStatus } from '@/hooks/useRealtime';
 import { AvatarDisplay } from '@/components/profile/AvatarDisplay';
 import { XPBar, LevelBadge } from '@/components/profile/XPBar';
 import { AppLogo } from '@/components/branding/AppLogo';
@@ -29,9 +28,6 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme();
   const { unreadCount } = useNotificationContext();
   const { rate } = useExchangeRate();
-
-  // Keep online status alive
-  useOnlineStatus(profile?.id);
 
   const handleSignOut = async () => {
     await signOut();
