@@ -115,9 +115,29 @@ export interface PrivateMessage {
   id: string;
   sender_id: string;
   receiver_id: string;
+  client_id?: string | null;
   content: string;
+  message_type?: 'text' | 'image' | 'video' | 'audio' | 'voice_note' | 'file' | 'gif' | 'sticker';
+  attachments?: MessageAttachment[];
+  reply_to_id?: string | null;
+  reactions?: Record<string, string[]>;
+  deleted_for_everyone?: boolean;
   is_read: boolean;
   created_at: string;
+  updated_at?: string | null;
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  error?: string | null;
+}
+
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  kind: 'image' | 'video' | 'audio' | 'file' | 'gif' | 'sticker' | 'voice_note';
+  thumbnailUrl?: string | null;
+  durationSeconds?: number | null;
 }
 
 export interface Conversation {

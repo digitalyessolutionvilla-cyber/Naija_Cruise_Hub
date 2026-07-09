@@ -1,0 +1,109 @@
+alter table public.private_messages
+  add column if not exists client_id text,
+  add column if not exists message_type text not null default 'text',
+  add column if not exists attachments jsonb not null default '[]'::jsonb,
+  add column if not exists reply_to_id uuid references public.private_messages(id) on delete set null,
+  add column if not exists reactions jsonb not null default '{}'::jsonb,
+  add column if not exists deleted_for_everyone boolean not null default false,
+  add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists private_messages_sender_client_id_unique
+  on public.private_messages (sender_id, client_id)
+  where client_id is not null;
+
+create or replace function public.set_private_message_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_private_messages_updated_at on public.private_messages;
+create trigger trg_private_messages_updated_at
+before update on public.private_messages
+for each row execute function public.set_private_message_updated_at();
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'chat-media',
+  'chat-media',
+  true,
+  104857600,
+  array[
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'video/mp4',
+    'video/webm',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/webm',
+    'application/pdf',
+    'application/zip',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword'
+  ]
+)
+on conflict (id) do nothing;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can upload chat media'
+  ) then
+    create policy "Authenticated users can upload chat media"
+    on storage.objects
+    for insert
+    to authenticated
+    with check (
+      bucket_id = 'chat-media'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can update own chat media'
+  ) then
+    create policy "Authenticated users can update own chat media"
+    on storage.objects
+    for update
+    to authenticated
+    using (
+      bucket_id = 'chat-media'
+      and owner = auth.uid()
+    )
+    with check (
+      bucket_id = 'chat-media'
+      and owner = auth.uid()
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can delete own chat media'
+  ) then
+    create policy "Authenticated users can delete own chat media"
+    on storage.objects
+    for delete
+    to authenticated
+    using (
+      bucket_id = 'chat-media'
+      and owner = auth.uid()
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Anyone can read chat media'
+  ) then
+    create policy "Anyone can read chat media"
+    on storage.objects
+    for select
+    using (bucket_id = 'chat-media');
+  end if;
+end $$;

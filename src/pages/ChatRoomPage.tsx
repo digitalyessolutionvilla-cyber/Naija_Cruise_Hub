@@ -37,7 +37,10 @@ export function ChatRoomPage() {
   const { awardXP } = useXP();
   const { messages, loading } = useRoomMessages(id);
   const [room, setRoom] = useState<ChatRoom | null>(null);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (!id) return;
@@ -87,6 +90,59 @@ export function ChatRoomPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    if (!id || !user) return;
+
+    if (typingChannelRef.current) {
+      supabase.removeChannel(typingChannelRef.current);
+      typingChannelRef.current = null;
+    }
+
+    const channel = supabase
+      .channel(`room-typing-${id}`)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload.roomId !== id) return;
+        if (payload.userId === user.id) return;
+        const name = payload.username as string;
+
+        setTypingUsers((prev) => (prev.includes(name) ? prev : [...prev, name]));
+        if (typingTimeoutsRef.current[name]) {
+          window.clearTimeout(typingTimeoutsRef.current[name]);
+        }
+        typingTimeoutsRef.current[name] = window.setTimeout(() => {
+          setTypingUsers((prev) => prev.filter((u) => u !== name));
+          delete typingTimeoutsRef.current[name];
+        }, payload.isTyping ? 1800 : 100);
+      })
+      .subscribe();
+
+    typingChannelRef.current = channel;
+
+    return () => {
+      if (typingChannelRef.current) {
+        supabase.removeChannel(typingChannelRef.current);
+        typingChannelRef.current = null;
+      }
+      Object.values(typingTimeoutsRef.current).forEach((id) => window.clearTimeout(id));
+      typingTimeoutsRef.current = {};
+      setTypingUsers([]);
+    };
+  }, [id, user]);
+
+  const broadcastTyping = useCallback((text: string) => {
+    if (!user || !id || !typingChannelRef.current) return;
+    void typingChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        roomId: id,
+        userId: user.id,
+        username: user.user_metadata?.username || 'User',
+        isTyping: text.trim().length > 0,
+      },
+    });
+  }, [id, user]);
+
   const handleSend = async (content: string) => {
     if (!user || !id) return;
     await supabase.from('room_messages').insert({
@@ -118,6 +174,11 @@ export function ChatRoomPage() {
                   <Users className="w-3 h-3" />
                   <span>{room.member_count.toLocaleString()} members</span>
                 </div>
+                {typingUsers.length > 0 && (
+                  <p className="text-[11px] text-primary animate-pulse">
+                    {typingUsers[0]} is typing...
+                  </p>
+                )}
               </div>
               <Button variant="ghost" size="icon" className="h-9 w-9">
                 <MoreVertical className="w-5 h-5" />
@@ -156,6 +217,7 @@ export function ChatRoomPage() {
           {user ? (
             <ChatInput
               onSend={handleSend}
+              onValueChange={broadcastTyping}
               placeholder={`Message ${room?.name || 'room'}...`}
             />
           ) : (

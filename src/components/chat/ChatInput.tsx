@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
+  onValueChange?: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -13,7 +14,7 @@ interface ChatInputProps {
 
 const QUICK_EMOJIS = ['😂', '❤️', '🔥', '👏', '😍', '🙌', '💯', '🤣'];
 
-export function ChatInput({ onSend, placeholder = 'Type a message...', disabled, className }: ChatInputProps) {
+export function ChatInput({ onSend, onValueChange, placeholder = 'Type a message...', disabled, className }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [showEmojis, setShowEmojis] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +67,10 @@ export function ChatInput({ onSend, placeholder = 'Type a message...', disabled,
         <Input
           ref={inputRef}
           value={value}
-          onChange={e => setValue(e.target.value)}
+          onChange={e => {
+            setValue(e.target.value);
+            onValueChange?.(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
