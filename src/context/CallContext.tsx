@@ -80,11 +80,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const callStatusRef = useRef<CallStatus>('idle');
+    const callStartedAtRef = useRef<number | null>(null);
     const activeCallRef = useRef<ActiveCall | null>(null);
     const incomingCallRef = useRef<IncomingCall | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const ringtoneIntervalRef = useRef<number | null>(null);
     const timeoutRef = useRef<number | null>(null);
+    const disconnectTimeoutRef = useRef<number | null>(null);
+    const reconnectIntervalRef = useRef<number | null>(null);
+    const reconnectAttemptsRef = useRef(0);
     const dragOffsetRef = useRef({ x: 0, y: 0 });
     const isDraggingRef = useRef(false);
 
@@ -95,6 +99,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
+
+    useEffect(() => {
+        callStartedAtRef.current = callStartedAt;
+    }, [callStartedAt]);
 
     useEffect(() => {
         incomingCallRef.current = incomingCall;
@@ -108,6 +116,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const cleanupPeerConnection = useCallback(() => {
+        if (disconnectTimeoutRef.current !== null) {
+            window.clearTimeout(disconnectTimeoutRef.current);
+            disconnectTimeoutRef.current = null;
+        }
+        if (reconnectIntervalRef.current !== null) {
+            window.clearInterval(reconnectIntervalRef.current);
+            reconnectIntervalRef.current = null;
+        }
+        reconnectAttemptsRef.current = 0;
+
         if (pcRef.current) {
             pcRef.current.onicecandidate = null;
             pcRef.current.ontrack = null;
@@ -136,6 +154,50 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (timeoutRef.current !== null) {
             window.clearTimeout(timeoutRef.current);
             timeoutRef.current = null;
+        }
+    }, []);
+
+    const clearDisconnectTimeout = useCallback(() => {
+        if (disconnectTimeoutRef.current !== null) {
+            window.clearTimeout(disconnectTimeoutRef.current);
+            disconnectTimeoutRef.current = null;
+        }
+    }, []);
+
+    const clearReconnectLoop = useCallback(() => {
+        if (reconnectIntervalRef.current !== null) {
+            window.clearInterval(reconnectIntervalRef.current);
+            reconnectIntervalRef.current = null;
+        }
+        reconnectAttemptsRef.current = 0;
+    }, []);
+
+    const showIncomingCallBrowserNotification = useCallback((callerName: string, callType: CallType) => {
+        if (typeof window === 'undefined') return;
+        if (document.visibilityState === 'visible') return;
+        if (!('Notification' in window)) return;
+
+        const show = () => {
+            const notice = new Notification('Incoming Call', {
+                body: `${callerName} is calling you (${callType}).`,
+                tag: 'incoming-call',
+                requireInteraction: true,
+            });
+            notice.onclick = () => {
+                window.focus();
+                notice.close();
+            };
+        };
+
+        if (Notification.permission === 'granted') {
+            show();
+            return;
+        }
+
+        if (Notification.permission === 'default') {
+            void Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') show();
+            });
         }
     }, []);
 
@@ -287,6 +349,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const createPeerConnection = useCallback((roomId: string, peerId: string) => {
         const peer = new RTCPeerConnection({ iceServers: STUN_SERVERS });
 
+        const attemptReconnect = async () => {
+            const current = activeCallRef.current;
+            if (!user || !current || !current.isCaller || !pcRef.current) return;
+            if (reconnectAttemptsRef.current >= 6) return;
+            if (pcRef.current.signalingState !== 'stable') return;
+
+            reconnectAttemptsRef.current += 1;
+            try {
+                const offer = await pcRef.current.createOffer({ iceRestart: true });
+                await pcRef.current.setLocalDescription(offer);
+                await sendSignal({
+                    kind: 'offer',
+                    fromUserId: user.id,
+                    toUserId: current.peerId,
+                    roomId: current.roomId,
+                    sdp: offer,
+                });
+            } catch (error) {
+                console.error('Reconnect attempt failed', error);
+            }
+        };
+
         peer.onicecandidate = (event) => {
             if (!user || !event.candidate) return;
             void sendSignal({
@@ -301,6 +385,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         peer.ontrack = (event) => {
             const [stream] = event.streams;
             if (stream) {
+                clearReconnectLoop();
+                clearDisconnectTimeout();
                 setRemoteStream(stream);
                 setCallStatus('active');
                 setCallStartedAt((prev) => prev ?? Date.now());
@@ -308,14 +394,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         };
 
         peer.onconnectionstatechange = () => {
-            if (peer.connectionState === 'failed' || peer.connectionState === 'disconnected' || peer.connectionState === 'closed') {
-                void resetCallState();
+            if (peer.connectionState === 'connected') {
+                clearReconnectLoop();
+                clearDisconnectTimeout();
+                setCallStatus('active');
+                return;
+            }
+
+            if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+                setCallStatus('connecting');
+                clearDisconnectTimeout();
+                disconnectTimeoutRef.current = window.setTimeout(() => {
+                    if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+                        toast.warning('Network is unstable. Trying to reconnect...');
+                    }
+                }, 12000);
+
+                if (reconnectIntervalRef.current === null) {
+                    void attemptReconnect();
+                    reconnectIntervalRef.current = window.setInterval(() => {
+                        void attemptReconnect();
+                    }, 4500);
+                }
+                return;
+            }
+
+            if (peer.connectionState === 'closed') {
+                clearReconnectLoop();
+                clearDisconnectTimeout();
             }
         };
 
         pcRef.current = peer;
         return peer;
-    }, [resetCallState, sendSignal, user]);
+    }, [clearDisconnectTimeout, clearReconnectLoop, sendSignal, user]);
 
     const startCall = useCallback(async (peerId: string, peerUsername: string, callType: CallType) => {
         if (!user) return;
@@ -493,7 +605,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         timeoutRef.current = window.setTimeout(() => {
             const currentActiveCall = activeCallRef.current;
-            const currentIncoming = incomingCall;
+            const currentIncoming = incomingCallRef.current;
 
             if (callStatusRef.current === 'calling' && currentActiveCall && user) {
                 void sendSignal({
@@ -531,10 +643,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                 setIncomingCall(null);
                 setCallStatus('idle');
             }
-        }, 45000);
+        }, 120000);
 
         return () => clearCallTimeout();
-    }, [callStatus, clearCallTimeout, createNotification, incomingCall, profile?.username, recordCallLog, resetCallState, sendSignal, user]);
+    }, [callStatus, clearCallTimeout, createNotification, incomingCallRef, profile?.username, recordCallLog, resetCallState, sendSignal, user]);
 
     useEffect(() => {
         if (!activeCall || callStatus === 'idle') return;
@@ -574,12 +686,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         return () => {
             clearCallTimeout();
+            clearDisconnectTimeout();
+            clearReconnectLoop();
             stopRingtone();
             if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
                 void audioContextRef.current.close();
             }
         };
-    }, [clearCallTimeout, stopRingtone]);
+    }, [clearCallTimeout, clearDisconnectTimeout, clearReconnectLoop, stopRingtone]);
 
     useEffect(() => {
         const onMouseMove = (event: MouseEvent) => {
@@ -651,6 +765,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                             callType: event.callType || 'voice',
                             roomId: event.roomId,
                         });
+                        showIncomingCallBrowserNotification(`@${event.fromUsername || 'User'}`, event.callType || 'voice');
                         setCallStatus('incoming');
                         break;
                     }
@@ -694,7 +809,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                         break;
                     }
                     case 'offer': {
-                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId || !pcRef.current) return;
+                        if (!currentActiveCall || currentActiveCall.roomId !== event.roomId) return;
+
+                        if (!pcRef.current) {
+                            try {
+                                const stream = localStream || await ensureLocalStream(currentActiveCall.callType);
+                                const recreatedPeer = createPeerConnection(currentActiveCall.roomId, currentActiveCall.peerId);
+                                attachStreamToPeer(recreatedPeer, stream);
+                            } catch (error) {
+                                console.error('Failed to recreate peer connection for offer', error);
+                                return;
+                            }
+                        }
+
+                        if (!pcRef.current) return;
 
                         await pcRef.current.setRemoteDescription(new RTCSessionDescription(event.sdp));
                         const answer = await pcRef.current.createAnswer();
@@ -725,7 +853,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                     }
                     case 'hangup': {
                         if (currentActiveCall && currentActiveCall.roomId === event.roomId) {
-                            const durationSeconds = callStartedAt ? Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)) : 0;
+                            const startedAt = callStartedAtRef.current;
+                            const durationSeconds = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
                             void recordCallLog({
                                 callerId: currentActiveCall.isCaller ? user.id : currentActiveCall.peerId,
                                 calleeId: currentActiveCall.isCaller ? currentActiveCall.peerId : user.id,
@@ -764,7 +893,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             signalingChannelRef.current = null;
             resetCallState();
         };
-    }, [attachStreamToPeer, callStartedAt, createPeerConnection, ensureLocalStream, isAcceptedFriend, recordCallLog, resetCallState, sendSignal, user]);
+    }, [attachStreamToPeer, createPeerConnection, ensureLocalStream, isAcceptedFriend, localStream, recordCallLog, resetCallState, sendSignal, showIncomingCallBrowserNotification, user]);
 
     const value = useMemo<CallContextType>(() => ({
         callStatus,

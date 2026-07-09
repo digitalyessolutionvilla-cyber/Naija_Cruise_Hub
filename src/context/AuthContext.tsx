@@ -31,16 +31,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .maybeSingle();
-    if (data) setProfile(data as unknown as Profile);
+    if (error) {
+      setProfile(null);
+      return;
+    }
+    if (data) {
+      setProfile(data as unknown as Profile);
+      return;
+    }
+    setProfile(null);
   }, []);
 
   const claimDailyLogin = useCallback(async (userId: string) => {
-    await supabase.rpc('claim_daily_login', { p_user_id: userId });
+    const { error } = await supabase.rpc('claim_daily_login', { p_user_id: userId });
+    if (error) return;
     // Refresh profile to get updated XP/streak
     await fetchProfile(userId);
   }, [fetchProfile]);
@@ -77,11 +86,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(newSession?.user ?? null);
         if (newSession?.user) {
           setTimeout(() => {
-            fetchProfile(newSession.user.id);
-            if (event === 'SIGNED_IN') {
-              claimDailyLogin(newSession.user.id);
-              claimInviteReward();
-            }
+            void (async () => {
+              try {
+                await fetchProfile(newSession.user.id);
+                if (event === 'SIGNED_IN') {
+                  await claimDailyLogin(newSession.user.id);
+                  await claimInviteReward();
+                }
+              } catch {
+                // Keep auth usable even when optional post-login tasks fail.
+              }
+            })();
           }, 0);
         } else {
           setProfile(null);
@@ -90,10 +105,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
-      if (s?.user) fetchProfile(s.user.id);
+      if (s?.user) {
+        try {
+          await fetchProfile(s.user.id);
+        } catch {
+          setProfile(null);
+        }
+      }
       setLoading(false);
     });
 
@@ -177,13 +198,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    let { error } = await supabase.auth.signInWithPassword({ email, password });
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
+    let { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: normalizedPassword,
+    });
 
     // Allow bootstrap of a default admin account if it does not exist yet.
-    if (error && isDefaultAdminCredential(email, password)) {
+    if (error && isDefaultAdminCredential(normalizedEmail, normalizedPassword)) {
       const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
+        email: normalizedEmail,
+        password: normalizedPassword,
         options: {
           data: { username: 'CruiseHubAdmin' },
           emailRedirectTo: `${window.location.origin}/`,
@@ -194,7 +220,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: signUpError as Error | null };
       }
 
-      const retry = await supabase.auth.signInWithPassword({ email, password });
+      const retry = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: normalizedPassword,
+      });
       error = retry.error;
     }
 
