@@ -26,7 +26,7 @@ export function Sidebar() {
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { unreadCount } = useNotificationContext();
+  const { unreadCount, unreadMessagesCount } = useNotificationContext();
   const { rate } = useExchangeRate();
 
   const handleSignOut = async () => {
@@ -82,6 +82,11 @@ export function Sidebar() {
             {label === 'Notifications' && unreadCount > 0 && (
               <span className="ml-auto w-5 h-5 rounded-full gradient-primary text-white text-[10px] flex items-center justify-center font-bold">
                 {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+            {label === 'Messages' && unreadMessagesCount > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full gradient-primary text-white text-[10px] flex items-center justify-center font-bold">
+                {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
               </span>
             )}
           </NavLink>

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { Home, Hash, Users, MessageSquare, User, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useNotificationContext } from '@/context/NotificationContext';
 
 const navItems = [
   { to: '/home', icon: Home, label: 'Home' },
@@ -12,6 +13,8 @@ const navItems = [
 ];
 
 export function BottomNav() {
+  const { unreadMessagesCount } = useNotificationContext();
+
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border glass-strong">
       <div className="flex items-center justify-around h-16 px-2">
@@ -33,6 +36,11 @@ export function BottomNav() {
                   isActive && 'bg-primary/15'
                 )}>
                   <Icon className="w-5 h-5" />
+                  {label === 'Messages' && unreadMessagesCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 bg-primary rounded-full text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+                      {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                    </span>
+                  )}
                 </div>
                 <span className="text-[10px] font-medium">{label}</span>
               </>

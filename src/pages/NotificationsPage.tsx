@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TopBar } from '@/components/layout/TopBar';
-import { Bell, Heart, MessageSquare, UserPlus, Zap, Star, Check } from 'lucide-react';
+import { Bell, Heart, MessageSquare, UserPlus, Zap, Check, Search, Trash2, Volume2, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNotificationContext } from '@/context/NotificationContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import type { NotificationType, Profile } from '@/types';
+import type { NotificationType, Profile, Notification } from '@/types';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 
 interface PendingFriendRequest {
   id: string;
@@ -21,18 +23,47 @@ interface PendingFriendRequest {
   requester?: Partial<Profile>;
 }
 
-const ICON_MAP: Record<NotificationType, { icon: typeof Bell; iconColor: string; iconBg: string }> = {
+const ICON_MAP: Record<string, { icon: typeof Bell; iconColor: string; iconBg: string }> = {
   like: { icon: Heart, iconColor: 'text-neon-pink', iconBg: 'bg-neon-pink/10' },
   friend_request: { icon: UserPlus, iconColor: 'text-neon-purple', iconBg: 'bg-neon-purple/10' },
   comment: { icon: MessageSquare, iconColor: 'text-neon-blue', iconBg: 'bg-neon-blue/10' },
   message: { icon: MessageSquare, iconColor: 'text-neon-blue', iconBg: 'bg-neon-blue/10' },
+  chat_room: { icon: MessageSquare, iconColor: 'text-neon-green', iconBg: 'bg-neon-green/10' },
+  share: { icon: Zap, iconColor: 'text-neon-gold', iconBg: 'bg-neon-gold/10' },
+  mention: { icon: Bell, iconColor: 'text-neon-blue', iconBg: 'bg-neon-blue/10' },
+  wallet: { icon: Zap, iconColor: 'text-neon-gold', iconBg: 'bg-neon-gold/10' },
+  coin_reward: { icon: Zap, iconColor: 'text-neon-gold', iconBg: 'bg-neon-gold/10' },
+  admin: { icon: Bell, iconColor: 'text-neon-purple', iconBg: 'bg-neon-purple/10' },
   system: { icon: Zap, iconColor: 'text-neon-gold', iconBg: 'bg-neon-gold/10' },
 };
 
+type FilterType = 'all' | NotificationType;
+
 export function NotificationsPage() {
-  const { notifications, loading, unreadCount, markRead, markAllRead } = useNotificationContext();
+  const {
+    notifications,
+    loading,
+    unreadCount,
+    markRead,
+    markAllRead,
+    deleteNotification,
+    clearAllNotifications,
+    settings,
+    soundLibrary,
+    previewSound,
+    updateSettings,
+    toggleCategoryMuted,
+  } = useNotificationContext();
   const { user } = useAuth();
   const [pendingRequests, setPendingRequests] = useState<PendingFriendRequest[]>([]);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+
+  const filteredNotifications = notifications.filter((notif) => {
+    if (activeFilter !== 'all' && notif.type !== activeFilter) return false;
+    const haystack = `${notif.title || ''} ${notif.body || ''}`.toLowerCase();
+    return haystack.includes(search.toLowerCase());
+  });
 
   useEffect(() => {
     if (!user) return;
@@ -127,6 +158,105 @@ export function NotificationsPage() {
           )}
         </div>
 
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search notifications..."
+              className="pl-9 bg-muted/50 border-transparent focus:border-primary"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {(['all', 'message', 'chat_room', 'friend_request', 'like', 'comment', 'system'] as FilterType[]).map((filterValue) => (
+              <button
+                key={filterValue}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-smooth',
+                  activeFilter === filterValue
+                    ? 'gradient-primary text-white'
+                    : 'bg-muted/40 text-muted-foreground'
+                )}
+                onClick={() => setActiveFilter(filterValue)}
+              >
+                <Filter className="w-3 h-3 inline mr-1" />
+                {filterValue === 'all' ? 'All' : filterValue.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={markAllRead}>
+              Mark all read
+            </Button>
+            <Button size="sm" variant="outline" onClick={clearAllNotifications}>
+              <Trash2 className="w-3 h-3 mr-1" /> Clear all
+            </Button>
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <p className="text-sm font-semibold">Notification Settings</p>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label className="flex items-center justify-between gap-2">Sound
+              <Switch checked={settings.soundEnabled} onCheckedChange={(v) => void updateSettings({ soundEnabled: v })} />
+            </label>
+            <label className="flex items-center justify-between gap-2">Vibration
+              <Switch checked={settings.vibrationEnabled} onCheckedChange={(v) => void updateSettings({ vibrationEnabled: v })} />
+            </label>
+            <label className="flex items-center justify-between gap-2">Push
+              <Switch checked={settings.pushEnabled} onCheckedChange={(v) => void updateSettings({ pushEnabled: v })} />
+            </label>
+            <label className="flex items-center justify-between gap-2">Quiet Hours
+              <Switch checked={settings.quietHoursEnabled} onCheckedChange={(v) => void updateSettings({ quietHoursEnabled: v })} />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">Sound</label>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 h-10 rounded-md border border-border bg-muted/40 px-3 text-sm"
+                value={settings.selectedSound}
+                onChange={(e) => void updateSettings({ selectedSound: e.target.value })}
+              >
+                {soundLibrary.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <Button variant="outline" onClick={() => void previewSound(settings.selectedSound)}>
+                <Volume2 className="w-4 h-4 mr-1" /> Preview
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">Mute Categories</label>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {[
+                ['messages', 'Messages'],
+                ['chat_rooms', 'Chat Rooms'],
+                ['posts', 'Posts'],
+                ['likes', 'Likes'],
+                ['comments', 'Comments'],
+                ['friend_requests', 'Friend Requests'],
+                ['wallet', 'Wallet'],
+                ['promotions', 'Promotions'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center justify-between gap-2 bg-muted/30 rounded-md px-2 py-1.5">
+                  <span>{label}</span>
+                  <Switch
+                    checked={Boolean(settings.mutedCategories[key as keyof typeof settings.mutedCategories])}
+                    onCheckedChange={(v) => void toggleCategoryMuted(key as any, v)}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Loading */}
         {loading && (
           <div className="space-y-2">
@@ -135,7 +265,7 @@ export function NotificationsPage() {
         )}
 
         {/* Empty */}
-        {!loading && notifications.length === 0 && pendingRequests.length === 0 && (
+        {!loading && filteredNotifications.length === 0 && pendingRequests.length === 0 && (
           <div className="text-center py-16 space-y-3">
             <Bell className="w-12 h-12 mx-auto text-muted-foreground/30" />
             <p className="text-muted-foreground text-sm">No notifications yet</p>
@@ -171,18 +301,17 @@ export function NotificationsPage() {
 
         {/* Notifications list */}
         <div className="space-y-2">
-          {notifications.map((notif, i) => {
+          {filteredNotifications.map((notif, i) => {
             const config = ICON_MAP[notif.type] || ICON_MAP.system;
             const Icon = config.icon;
             const timeAgo = formatDistanceToNow(new Date(notif.created_at), { addSuffix: true });
 
             return (
-              <motion.button
+              <motion.div
                 key={notif.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.04, 0.3) }}
-                onClick={() => !notif.is_read && markRead(notif.id)}
                 className={cn(
                   'w-full glass rounded-2xl p-4 flex items-start gap-3 transition-smooth text-left hover:bg-muted/20',
                   !notif.is_read && 'neon-border'
@@ -201,9 +330,26 @@ export function NotificationsPage() {
                   {notif.body && (
                     <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
                   )}
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">{timeAgo}</p>
+                  <div className="flex items-center justify-between mt-1 gap-2">
+                    <p className="text-[10px] text-muted-foreground/60">{timeAgo}</p>
+                    <div className="flex items-center gap-1">
+                      {!notif.is_read && (
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => void markRead(notif.id)}>
+                          Read
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[11px] text-destructive"
+                        onClick={() => void deleteNotification(notif.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
         </div>

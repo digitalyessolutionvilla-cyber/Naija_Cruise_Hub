@@ -12,6 +12,7 @@ import { ChatInput } from '@/components/chat/ChatInput';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useRoomMessages } from '@/hooks/useRealtime';
+import { useNotificationContext } from '@/context/NotificationContext';
 import { useXP } from '@/hooks/useXP';
 import { supabase } from '@/integrations/supabase/client';
 import { useState } from 'react';
@@ -32,6 +33,7 @@ export function ChatRoomPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { markRoomRead } = useNotificationContext();
   const { awardXP } = useXP();
   const { messages, loading } = useRoomMessages(id);
   const [room, setRoom] = useState<ChatRoom | null>(null);
@@ -75,6 +77,11 @@ export function ChatRoomPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
+
+  useEffect(() => {
+    if (!id) return;
+    markRoomRead(id);
+  }, [id, markRoomRead]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -10,7 +10,29 @@ export type UserLevel =
 
 export type PostType = 'text' | 'confession' | 'poll' | 'meme' | 'story' | 'question';
 export type FriendshipStatus = 'pending' | 'accepted' | 'blocked';
-export type NotificationType = 'message' | 'friend_request' | 'like' | 'comment' | 'system';
+export type NotificationType =
+  | 'message'
+  | 'chat_room'
+  | 'friend_request'
+  | 'friend_accepted'
+  | 'follower'
+  | 'like'
+  | 'comment'
+  | 'reply'
+  | 'share'
+  | 'mention'
+  | 'post'
+  | 'meme'
+  | 'reel'
+  | 'wallet'
+  | 'coin_reward'
+  | 'task'
+  | 'withdrawal'
+  | 'event'
+  | 'group_invite'
+  | 'admin'
+  | 'promo'
+  | 'system';
 
 export type XPReason =
   | 'daily_login'

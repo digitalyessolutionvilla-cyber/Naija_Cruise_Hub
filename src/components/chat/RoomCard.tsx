@@ -60,9 +60,10 @@ function RoomIcon({ iconName, category }: { iconName: string; category: string |
 interface RoomCardProps {
   room: ChatRoom;
   className?: string;
+  unreadCount?: number;
 }
 
-export function RoomCard({ room, className }: RoomCardProps) {
+export function RoomCard({ room, className, unreadCount = 0 }: RoomCardProps) {
   const navigate = useNavigate();
   const isActive = room.member_count > 500;
 
@@ -71,6 +72,7 @@ export function RoomCard({ room, className }: RoomCardProps) {
       onClick={() => navigate(`/rooms/${room.id}`)}
       className={cn(
         'glass rounded-2xl p-4 text-left w-full card-elevated group flex items-center gap-4',
+        unreadCount > 0 && 'neon-border',
         className
       )}
     >
@@ -79,6 +81,11 @@ export function RoomCard({ room, className }: RoomCardProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="font-semibold text-sm truncate">{room.name}</span>
+          {unreadCount > 0 && (
+            <span className="w-5 h-5 rounded-full gradient-primary text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
           {isActive && (
             <span className="flex-shrink-0 w-2 h-2 rounded-full bg-neon-green animate-pulse" />
           )}

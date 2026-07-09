@@ -13,6 +13,7 @@ import { ChatRoom } from '@/types';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { useNotificationContext } from '@/context/NotificationContext';
 
 const CATEGORIES = ['All', 'General', 'City', 'Education', 'Social', 'Entertainment', 'Sports', 'Technology', 'Lifestyle', 'Business'];
 
@@ -26,6 +27,7 @@ function getCreateRoomErrorMessage(error: { message?: string; code?: string } | 
 
 export function ChatRoomsPage() {
   const { user } = useAuth();
+  const { roomUnreadCounts } = useNotificationContext();
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
@@ -156,7 +158,7 @@ export function ChatRoomsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <RoomCard room={room} />
+                <RoomCard room={room} unreadCount={roomUnreadCounts[room.id] || 0} />
               </motion.div>
             ))}
             {filtered.length === 0 && (
